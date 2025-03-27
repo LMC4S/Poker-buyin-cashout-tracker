@@ -395,13 +395,13 @@ struct BuyInSelectionView: View {
                 Button("Cancel", role: .cancel) { }
             })
             // Alert for cash out entry
-            .alert("Enter Chip Stack", isPresented: $showCashOutEntry, actions: {
-                TextField("$ Chip Stack Value", text: $cashOutAmount)
+            .alert("Enter Cash Out Value (in dollars)", isPresented: $showCashOutEntry, actions: {
+                TextField("$ Value (e.g., 20 for $20)", text: $cashOutAmount)
                     .keyboardType(.decimalPad)
                 Button("Cash Out") {
-                    if let chipStack = Double(cashOutAmount) {
-                        sessionStore.cashOut(for: player, chipStack: chipStack)
-                        confirmationMessage = "Cashed out \(player) with chip stack $\(chipStack)"
+                    if let cashOutValue = Double(cashOutAmount) {
+                        sessionStore.cashOut(for: player, chipStack: cashOutValue)
+                        confirmationMessage = "Cashed out \(player) with $\(cashOutValue)"
                         showConfirmationAlert = true
                     } else {
                         presentationMode.wrappedValue.dismiss()
