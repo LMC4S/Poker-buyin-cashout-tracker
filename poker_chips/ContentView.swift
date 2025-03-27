@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import AudioToolbox
 
 enum TransactionType: String, Codable {
     case buyIn = "Buy-In"
@@ -57,14 +58,19 @@ struct Session: Identifiable, Codable {  // <-- Added Codable conformance
 class SessionStore: ObservableObject {
     // A simple in-memory storage of sessions
     @Published var sessions: [Session] = []
-    @Published var currentSession: Session? = nil
+    @Published var currentSession: Session? = nil {
+        didSet {
+            SessionPersistenceManager.shared.saveActiveSession(currentSession)
+        }
+    }
     
     // Predefined players
-    let players = ["Alice", "Bob", "Charlie", "Dave", "Eve", "Frank", "Grace", "Heidi", "Ivan", "Judy", "Mallory"]
+    let players = ["Jalen", "Rafa", "Adela", "Jeff", "Jack", "大可", "JQ", "Kyle", "Lin", "Lic哥", "威士忌组合"]
     
     // New initializer to load saved sessions from persistence
     init() {
         sessions = SessionPersistenceManager.shared.loadSessions()
+        currentSession = SessionPersistenceManager.shared.loadActiveSession()
     }
     
     func startNewSession() {
@@ -91,8 +97,8 @@ class SessionStore: ObservableObject {
     func endSession() {
         if let session = currentSession {
             sessions.append(session)
-            SessionPersistenceManager.shared.saveSessions(sessions)  // <-- Save sessions persistently
-            currentSession = nil
+            SessionPersistenceManager.shared.saveSessions(sessions)  // Save sessions persistently
+            currentSession = nil  // This will automatically clear the active session in persistence
         }
     }
     
@@ -108,27 +114,25 @@ struct ContentView: View {
     @StateObject var sessionStore = SessionStore()
     
     var body: some View {
-        NavigationStack {
-            HomeView()
-                .environmentObject(sessionStore)
+        ZStack {
+            // Casino table green background
+            Color(red: 0.0, green: 0.4, blue: 0.0)
+                .ignoresSafeArea()
+            NavigationStack {
+                HomeView()
+                    .environmentObject(sessionStore)
+            }
         }
+        .tint(.red) // Casino red accent color
     }
 }
 
 struct HomeView: View {
     @EnvironmentObject var sessionStore: SessionStore
+    @State private var showSettings: Bool = false
     @State private var showInstructions: Bool = false
+    @State private var navigateToSessionView: Bool = false
     
-    var activeBinding: Binding<Bool> {
-        Binding(
-            get: { sessionStore.currentSession != nil },
-            set: { newValue in
-                if !newValue {
-                    sessionStore.endSession()
-                }
-            }
-        )
-    }
     
     var pastSessionsSection: some View {
         Section(header: Text("Past Sessions")) {
@@ -144,6 +148,7 @@ struct HomeView: View {
                         Label("Delete", systemImage: "trash")
                     }
                 }
+                .listRowBackground(Color(UIColor.systemBackground).opacity(0.8))
             }
         }
     }
@@ -153,26 +158,52 @@ struct HomeView: View {
             List {
                 pastSessionsSection
             }
-            
-            // Only show Start New Session button if there's no active session
-            if sessionStore.currentSession == nil {
+            .listStyle(InsetGroupedListStyle())
+
+            if let _ = sessionStore.currentSession {
+                NavigationLink("Resume Session", destination: SessionView().environmentObject(sessionStore))
+                    .frame(maxWidth: .infinity)
+                    .padding()
+                    .background(LinearGradient(gradient: Gradient(colors: [Color.red, Color.yellow]), startPoint: .topLeading, endPoint: .bottomTrailing))
+                    .cornerRadius(8)
+                    .foregroundColor(.white)
+                    .shadow(color: Color.gray.opacity(0.5), radius: 5, x: 0, y: 2)
+                    .padding([.horizontal, .bottom])
+            } else {
                 Button("Start New Session") {
                     sessionStore.startNewSession()
+                    navigateToSessionView = true
                 }
                 .frame(maxWidth: .infinity)
                 .padding()
-                .background(Color.blue.opacity(0.2))
+                .background(LinearGradient(gradient: Gradient(colors: [Color.red, Color.yellow]), startPoint: .topLeading, endPoint: .bottomTrailing))
                 .cornerRadius(8)
+                .foregroundColor(.white)
+                .shadow(color: Color.gray.opacity(0.5), radius: 5, x: 0, y: 2)
                 .padding([.horizontal, .bottom])
             }
+            NavigationLink(
+                destination: SessionView().environmentObject(sessionStore),
+                isActive: $navigateToSessionView,
+                label: { EmptyView() }
+            )
+            .hidden()
         }
-        .navigationTitle("Poker Buy-In Tracker")
-        .navigationDestination(isPresented: activeBinding) {
-            SessionView()
-                .environmentObject(sessionStore)
+        .navigationTitle("Home Game Tracker")
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button(action: {
+                    showSettings = true
+                }) {
+                    Image(systemName: "gear")
+                }
+            }
         }
         .sheet(isPresented: $showInstructions) {
             InstructionsView()
+        }
+        .sheet(isPresented: $showSettings) {
+            SettingsView()
         }
     }
 }
@@ -181,6 +212,7 @@ struct HomeView: View {
 
 struct SessionView: View {
     @EnvironmentObject var sessionStore: SessionStore
+    @Environment(\.dismiss) var dismiss
     @State private var selectedPlayer: String? = nil
     @State private var showNewPlayerRegistration = false
     @State private var showTotals = false
@@ -190,28 +222,30 @@ struct SessionView: View {
     
     var body: some View {
         VStack {
-            // List of registered players from the current session
-            if let session = sessionStore.currentSession {
-                ForEach(session.buyIns.keys.sorted(), id: \.self) { player in
-                    if session.cashOuts[player] != nil {
-                        Text(player)
-                            .frame(maxWidth: .infinity)
-                            .padding()
-                            .background(Color.gray.opacity(0.2))
-                            .cornerRadius(8)
-                            .foregroundColor(.gray)
-                            .padding(.horizontal)
-                    } else {
-                        Button(action: {
-                            selectedPlayer = player
-                        }) {
+            // List of registered players from the current session with scroll capability
+            ScrollView {
+                if let session = sessionStore.currentSession {
+                    ForEach(session.buyIns.keys.sorted(), id: \.self) { player in
+                        if session.cashOuts[player] != nil {
                             Text(player)
                                 .frame(maxWidth: .infinity)
                                 .padding()
                                 .background(Color.gray.opacity(0.2))
                                 .cornerRadius(8)
+                                .foregroundColor(.gray)
+                                .padding(.horizontal)
+                        } else {
+                            Button(action: {
+                                selectedPlayer = player
+                            }) {
+                                Text(player)
+                                    .frame(maxWidth: .infinity)
+                                    .padding()
+                                    .background(Color.gray.opacity(0.2))
+                                    .cornerRadius(8)
+                            }
+                            .padding(.horizontal)
                         }
-                        .padding(.horizontal)
                     }
                 }
             }
@@ -224,10 +258,12 @@ struct SessionView: View {
             }
             .frame(maxWidth: .infinity)
             .padding()
-            .background(Color.blue.opacity(0.2))
+            .background(LinearGradient(gradient: Gradient(colors: [Color.red, Color.yellow]), startPoint: .topLeading, endPoint: .bottomTrailing))
             .cornerRadius(8)
+            .foregroundColor(.white)
+            .shadow(color: Color.gray.opacity(0.5), radius: 5, x: 0, y: 2)
             .padding(.horizontal)
-            
+
             // Totals and End Session buttons
             HStack {
                 Button("View Totals") {
@@ -252,9 +288,8 @@ struct SessionView: View {
             .padding()
         }
         .navigationBarTitle("Active Session", displayMode: .inline)
-        .navigationBarBackButtonHidden(true)
         .toolbar {
-            ToolbarItem(placement: .navigationBarLeading) {
+            ToolbarItem(placement: .navigationBarTrailing) {
                 Button(action: {
                     showInstructions = true
                 }) {
@@ -290,6 +325,7 @@ struct SessionView: View {
         .alert("Confirm End Session", isPresented: $showEndSessionAlert) {
             Button("Yes", role: .destructive) {
                 sessionStore.endSession()
+                dismiss()
             }
             Button("Cancel", role: .cancel) { }
         } message: {
@@ -311,6 +347,8 @@ struct BuyInSelectionView: View {
     @State private var showManualEntry = false
     @State private var showCashOutEntry = false  // <-- Added cashOutEntry state
     @State private var cashOutAmount: String = "" // <-- Added cashOutAmount state
+    @State private var showConfirmationAlert = false
+    @State private var confirmationMessage: String = ""
     
     var body: some View {
         NavigationView {
@@ -319,7 +357,8 @@ struct BuyInSelectionView: View {
                     ForEach([10, 20, 30, 40, 50], id: \.self) { amount in
                         Button("$\(amount)") {
                             sessionStore.addBuyIn(for: player, amount: Double(amount))
-                            presentationMode.wrappedValue.dismiss()
+                            confirmationMessage = "Added buy-in of $\(amount) for \(player)"
+                            showConfirmationAlert = true
                         }
                     }
                     Button("Manual") {
@@ -347,8 +386,11 @@ struct BuyInSelectionView: View {
                 Button("Add") {
                     if let amount = Double(manualAmount) {
                         sessionStore.addBuyIn(for: player, amount: amount)
+                        confirmationMessage = "Added buy-in of $\(amount) for \(player)"
+                        showConfirmationAlert = true
+                    } else {
+                        presentationMode.wrappedValue.dismiss()
                     }
-                    presentationMode.wrappedValue.dismiss()
                 }
                 Button("Cancel", role: .cancel) { }
             })
@@ -359,12 +401,30 @@ struct BuyInSelectionView: View {
                 Button("Cash Out") {
                     if let chipStack = Double(cashOutAmount) {
                         sessionStore.cashOut(for: player, chipStack: chipStack)
+                        confirmationMessage = "Cashed out \(player) with chip stack $\(chipStack)"
+                        showConfirmationAlert = true
+                    } else {
+                        presentationMode.wrappedValue.dismiss()
                     }
-                    presentationMode.wrappedValue.dismiss()
                 }
                 Button("Cancel", role: .cancel) { }
             })
         }
+        .alert("Confirmation", isPresented: $showConfirmationAlert, actions: {
+            Button("OK") {
+                presentationMode.wrappedValue.dismiss()
+            }
+        }, message: {
+            Text(confirmationMessage)
+                .onAppear {
+                    if UserDefaults.standard.bool(forKey: "vibrationEnabled") {
+                        AudioServicesPlaySystemSound(kSystemSoundID_Vibrate)
+                    }
+                    if UserDefaults.standard.bool(forKey: "soundEnabled") {
+                        AudioServicesPlaySystemSound(1013)
+                    }
+                }
+        })
     }
 }
 
@@ -374,20 +434,43 @@ struct TotalsView: View {
     @EnvironmentObject var sessionStore: SessionStore
     @Environment(\.presentationMode) var presentationMode
     
+    // Computed property to calculate the table balance
+    var tableBalance: Double {
+        if let session = sessionStore.currentSession {
+            let totalBuyIn = session.buyIns.values.reduce(0, +)
+            let totalCashOut = session.cashOuts.values.reduce(0, +)
+            return totalBuyIn - totalCashOut
+        }
+        return 0.0
+    }
+    
     var body: some View {
         NavigationView {
             List {
-                if let session = sessionStore.currentSession {
-                    ForEach(session.buyIns.keys.sorted(), id: \.self) { player in
-                        if let buyInTotal = session.buyIns[player] {
-                            if let cashOut = session.cashOuts[player] {
-                                let net = cashOut - buyInTotal
-                                Text("\(player): Buy-In: $\(buyInTotal, specifier: "%.2f"), Cashed Out: $\(cashOut, specifier: "%.2f"), Net: $\(net, specifier: "%.2f")")
-                            } else {
-                                Text("\(player): $\(buyInTotal, specifier: "%.2f")")
+                Section(header: Text("Players")) {
+                    if let session = sessionStore.currentSession {
+                        ForEach(session.buyIns.keys.sorted(), id: \.self) { player in
+                            if let buyInTotal = session.buyIns[player] {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(player)
+                                        .font(.headline)
+                                    Text("Buy-In: $\(buyInTotal, specifier: "%.2f")")
+                                    if let cashOut = session.cashOuts[player] {
+                                        let net = cashOut - buyInTotal
+                                        Text("Cashed Out: $\(cashOut, specifier: "%.2f")")
+                                        Text("Net: $\(net, specifier: "%.2f")")
+                                            .foregroundColor(.gray)
+                                    }
+                                }
+                                .padding(.vertical, 4)
                             }
                         }
                     }
+                }
+                
+                // New section displaying the table-wide balance
+                Section(header: Text("Table Balance")) {
+                    Text("$\(tableBalance, specifier: "%.2f")")
                 }
             }
             .navigationTitle("Current Totals")
@@ -437,7 +520,7 @@ struct InstructionsView: View {
         NavigationView {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
-                    Text("Welcome to Poker Buy-In Tracker!")
+                    Text("Welcome to Poker Home Game Tracker!")
                         .font(.title)
                         .padding(.bottom, 8)
                     Text("Instructions:")
@@ -494,6 +577,29 @@ struct NewPlayerRegistrationView: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") {
+                        presentationMode.wrappedValue.dismiss()
+                    }
+                }
+            }
+        }
+    }
+}
+
+struct SettingsView: View {
+    @Environment(\.presentationMode) var presentationMode
+    @AppStorage("vibrationEnabled") var vibrationEnabled: Bool = true
+    @AppStorage("soundEnabled") var soundEnabled: Bool = true
+    
+    var body: some View {
+        NavigationView {
+            Form {
+                Toggle("Vibration", isOn: $vibrationEnabled)
+                Toggle("Sound", isOn: $soundEnabled)
+            }
+            .navigationTitle("Settings")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Done") {
                         presentationMode.wrappedValue.dismiss()
                     }
                 }

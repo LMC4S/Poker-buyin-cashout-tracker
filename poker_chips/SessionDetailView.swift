@@ -11,19 +11,25 @@ struct SessionDetailView: View {
 
     var body: some View {
         VStack {
-            Text("Session on \(session.formattedDate)")
+            Text("\(session.formattedDate)")
                 .font(.headline)
                 .padding()
             List {
                 Section(header: Text("Totals")) {
                     ForEach(session.buyIns.keys.sorted(), id: \.self) { player in
                         if let buyInTotal = session.buyIns[player] {
-                            if let cashOut = session.cashOuts[player] {
-                                let net = cashOut - buyInTotal
-                                Text("\(player): Buy-In: $\(buyInTotal, specifier: "%.2f"), Cashed Out: $\(cashOut, specifier: "%.2f"), Net: $\(net, specifier: "%.2f")")
-                            } else {
-                                Text("\(player): Buy-In: $\(buyInTotal, specifier: "%.2f")")
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(player)
+                                    .font(.headline)
+                                Text("Buy-In: $\(buyInTotal, specifier: "%.2f")")
+                                if let cashOut = session.cashOuts[player] {
+                                    let net = cashOut - buyInTotal
+                                    Text("Cashed Out: $\(cashOut, specifier: "%.2f")")
+                                    Text("Net: $\(net, specifier: "%.2f")")
+                                        .foregroundColor(.gray)
+                                }
                             }
+                            .padding(.vertical, 4)
                         }
                     }
                 }
