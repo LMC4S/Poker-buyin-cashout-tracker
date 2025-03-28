@@ -8,9 +8,91 @@
 import SwiftUI
 import AudioToolbox
 
+// MARK: - Custom Colors and Styles
+struct AppColors {
+    static let background = Color(red: 0.05, green: 0.25, blue: 0.15)
+    static let cardBackground = Color(red: 0.1, green: 0.3, blue: 0.2)
+    static let accent = Color(red: 0.8, green: 0.1, blue: 0.2)
+    static let secondaryAccent = Color(red: 0.9, green: 0.7, blue: 0.2)
+    static let text = Color.white
+    static let secondaryText = Color(white: 0.9)
+    static let success = Color(red: 0.2, green: 0.8, blue: 0.2)
+    static let warning = Color(red: 0.9, green: 0.6, blue: 0.1)
+}
+
+struct CardStyle: ViewModifier {
+    func body(content: Content) -> some View {
+        content
+            .padding()
+            .background(AppColors.cardBackground)
+            .cornerRadius(12)
+            .shadow(color: Color.black.opacity(0.2), radius: 5, x: 0, y: 2)
+    }
+}
+
+struct PrimaryButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .frame(maxWidth: .infinity)
+            .padding()
+            .background(
+                LinearGradient(
+                    gradient: Gradient(colors: [AppColors.accent, AppColors.accent.opacity(0.8)]),
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+            )
+            .cornerRadius(12)
+            .foregroundColor(.white)
+            .shadow(color: AppColors.accent.opacity(0.5), radius: 5, x: 0, y: 2)
+            .scaleEffect(configuration.isPressed ? 0.98 : 1.0)
+            .animation(.easeInOut(duration: 0.2), value: configuration.isPressed)
+    }
+}
+
+struct SecondaryButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .padding()
+            .background(AppColors.cardBackground)
+            .cornerRadius(12)
+            .foregroundColor(AppColors.text)
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .stroke(AppColors.secondaryAccent, lineWidth: 1)
+            )
+            .scaleEffect(configuration.isPressed ? 0.98 : 1.0)
+            .animation(.easeInOut(duration: 0.2), value: configuration.isPressed)
+    }
+}
+
+extension View {
+    func cardStyle() -> some View {
+        modifier(CardStyle())
+    }
+}
+
 enum TransactionType: String, Codable {
     case buyIn = "Buy-In"
     case cashOut = "Cash Out"
+    
+    var icon: String {
+        switch self {
+        case .buyIn:
+            return "arrow.down.circle.fill"
+        case .cashOut:
+            return "arrow.up.circle.fill"
+        }
+    }
+    
+    var color: Color {
+        switch self {
+        case .buyIn:
+            return AppColors.secondaryAccent
+        case .cashOut:
+            return AppColors.success
+        }
+    }
 }
 
 struct PlayerName: Identifiable {
@@ -148,15 +230,31 @@ struct ContentView: View {
     
     var body: some View {
         ZStack {
-            // Casino table green background
-            Color(red: 0.0, green: 0.4, blue: 0.0)
+            // Custom poker table background with gradient
+            LinearGradient(
+                gradient: Gradient(colors: [
+                    AppColors.background,
+                    AppColors.background.opacity(0.9),
+                    AppColors.cardBackground.opacity(0.8)
+                ]),
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .ignoresSafeArea()
+            
+            // Subtle pattern overlay
+            Image(systemName: "suit.club.fill")
+                .resizable(resizingMode: .tile)
+                .foregroundColor(Color.white.opacity(0.03))
                 .ignoresSafeArea()
+            
             NavigationStack {
                 HomeView()
                     .environmentObject(sessionStore)
             }
         }
-        .tint(.red) // Casino red accent color
+        .tint(AppColors.accent)
+        .preferredColorScheme(.dark)
     }
 }
 
@@ -166,80 +264,201 @@ struct HomeView: View {
     @State private var showInstructions: Bool = false
     @State private var navigateToSessionView: Bool = false
     @State private var showExportView: Bool = false
-    
+    @State private var animateCards = false
     
     var pastSessionsSection: some View {
-        Section(header: Text("Past Sessions")) {
-            ForEach(sessionStore.sessions.indices, id: \.self) { index in
-                let session = sessionStore.sessions[index]
-                NavigationLink(destination: SessionDetailView(session: session)) {
-                    Text("Game \(index + 1) – \(session.formattedDate)")
-                }
-                .swipeActions {
-                    Button(role: .destructive) {
-                        sessionStore.deleteSession(at: IndexSet(integer: index))
-                    } label: {
-                        Label("Delete", systemImage: "trash")
+        Section(header: Text("Past Sessions")
+            .font(.headline)
+            .foregroundColor(AppColors.secondaryAccent)) {
+            if sessionStore.sessions.isEmpty {
+                Text("No past sessions yet")
+                    .foregroundColor(AppColors.secondaryText)
+                    .italic()
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .padding()
+                    .listRowBackground(Color.clear)
+            } else {
+                ForEach(sessionStore.sessions.indices, id: \.self) { index in
+                    let session = sessionStore.sessions[index]
+                    NavigationLink(destination: SessionDetailView(session: session)) {
+                        HStack {
+                            Image(systemName: "calendar")
+                                .foregroundColor(AppColors.secondaryAccent)
+                                .font(.headline)
+                            
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("Game \(index + 1)")
+                                    .font(.headline)
+                                    .foregroundColor(AppColors.text)
+                                
+                                Text(session.formattedDate)
+                                    .font(.subheadline)
+                                    .foregroundColor(AppColors.secondaryText)
+                            }
+                            
+                            Spacer()
+                            
+                            Text("\(session.buyIns.count) players")
+                                .font(.caption)
+                                .foregroundColor(AppColors.secondaryText)
+                                .padding(6)
+                                .background(AppColors.cardBackground)
+                                .cornerRadius(8)
+                        }
+                        .padding(.vertical, 8)
                     }
+                    .listRowBackground(AppColors.cardBackground.opacity(0.8))
+                    .swipeActions {
+                        Button(role: .destructive) {
+                            sessionStore.deleteSession(at: IndexSet(integer: index))
+                        } label: {
+                            Label("Delete", systemImage: "trash")
+                        }
+                    }
+                    .opacity(animateCards ? 1 : 0)
+                    .offset(x: animateCards ? 0 : -20)
+                    .animation(.easeOut.delay(Double(index) * 0.1), value: animateCards)
                 }
-                .listRowBackground(Color(UIColor.systemBackground).opacity(0.8))
             }
         }
     }
     
     var body: some View {
-        VStack {
-            List {
-                pastSessionsSection
-            }
-            .listStyle(InsetGroupedListStyle())
-
-            if let _ = sessionStore.currentSession {
-                NavigationLink("Resume Session", destination: SessionView().environmentObject(sessionStore))
-                    .frame(maxWidth: .infinity)
-                    .padding()
-                    .background(LinearGradient(gradient: Gradient(colors: [Color.red, Color.yellow]), startPoint: .topLeading, endPoint: .bottomTrailing))
-                    .cornerRadius(8)
-                    .foregroundColor(.white)
-                    .shadow(color: Color.gray.opacity(0.5), radius: 5, x: 0, y: 2)
-                    .padding([.horizontal, .bottom])
-            } else {
-                Button("Start New Session") {
-                    sessionStore.startNewSession()
-                    navigateToSessionView = true
+        ZStack {
+            // Background gradient for HomeView
+            LinearGradient(
+                gradient: Gradient(colors: [
+                    AppColors.background,
+                    AppColors.background.opacity(0.9),
+                    AppColors.cardBackground.opacity(0.8)
+                ]),
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .ignoresSafeArea()
+            
+            VStack(spacing: 0) {
+                // Logo/Header area
+                VStack {
+                    HStack {
+                        Image(systemName: "suit.spade.fill")
+                        Image(systemName: "suit.heart.fill")
+                            .foregroundColor(AppColors.accent)
+                        Image(systemName: "suit.club.fill")
+                        Image(systemName: "suit.diamond.fill")
+                            .foregroundColor(AppColors.accent)
+                    }
+                    .font(.largeTitle)
+                    .padding(.top)
+                    
+                    Text("POKER at ONE PARK VIEW")
+                        .font(.system(size: 28, weight: .bold, design: .rounded))
+                        .foregroundColor(AppColors.text)
+                        .padding(.bottom, 5)
+                    
+                    Text("Home Game Tracker")
+                        .font(.subheadline)
+                        .foregroundColor(AppColors.secondaryText)
+                        .padding(.bottom)
                 }
                 .frame(maxWidth: .infinity)
-                .padding()
-                .background(LinearGradient(gradient: Gradient(colors: [Color.red, Color.yellow]), startPoint: .topLeading, endPoint: .bottomTrailing))
-                .cornerRadius(8)
-                .foregroundColor(.white)
-                .shadow(color: Color.gray.opacity(0.5), radius: 5, x: 0, y: 2)
-                .padding([.horizontal, .bottom])
-            }
-            NavigationLink(
-                destination: SessionView().environmentObject(sessionStore),
-                isActive: $navigateToSessionView,
-                label: { EmptyView() }
-            )
-            .hidden()
-        }
-        .navigationTitle("Home Game Tracker")
-        .toolbar {
-            ToolbarItem(placement: .navigationBarTrailing) {
-                Menu {
-                    Button(action: {
-                        showExportView = true
-                    }) {
-                        Label("Export Sessions", systemImage: "square.and.arrow.up")
+                .background(
+                    AppColors.cardBackground
+                        .shadow(color: Color.black.opacity(0.2), radius: 5, x: 0, y: 5)
+                )
+            
+                List {
+                    pastSessionsSection
+                }
+                .listStyle(InsetGroupedListStyle())
+                .scrollContentBackground(.hidden)
+
+                VStack(spacing: 16) {
+                if let _ = sessionStore.currentSession {
+                    NavigationLink(destination: SessionView().environmentObject(sessionStore)) {
+                        HStack {
+                            Image(systemName: "play.circle.fill")
+                                .font(.headline)
+                            Text("Resume Session")
+                                .font(.headline)
+                        }
                     }
+                    .buttonStyle(PrimaryButtonStyle())
+                } else {
+                    Button(action: {
+                        sessionStore.startNewSession()
+                        navigateToSessionView = true
+                    }) {
+                        HStack {
+                            Image(systemName: "plus.circle.fill")
+                                .font(.headline)
+                            Text("Start New Session")
+                                .font(.headline)
+                        }
+                    }
+                    .buttonStyle(PrimaryButtonStyle())
+                }
+                
+                HStack(spacing: 16) {
+                    Button(action: {
+                        showInstructions = true
+                    }) {
+                        VStack {
+                            Image(systemName: "questionmark.circle.fill")
+                                .font(.title2)
+                            Text("Help")
+                                .font(.caption)
+                        }
+                    }
+                    .buttonStyle(SecondaryButtonStyle())
+                    .frame(maxWidth: .infinity)
                     
                     Button(action: {
                         showSettings = true
                     }) {
-                        Label("Settings", systemImage: "gear")
+                        VStack {
+                            Image(systemName: "gear")
+                                .font(.title2)
+                            Text("Settings")
+                                .font(.caption)
+                        }
                     }
-                } label: {
-                    Image(systemName: "ellipsis.circle")
+                    .buttonStyle(SecondaryButtonStyle())
+                    .frame(maxWidth: .infinity)
+                    
+                    Button(action: {
+                        showExportView = true
+                    }) {
+                        VStack {
+                            Image(systemName: "square.and.arrow.up")
+                                .font(.title2)
+                            Text("Export")
+                                .font(.caption)
+                        }
+                    }
+                    .buttonStyle(SecondaryButtonStyle())
+                    .frame(maxWidth: .infinity)
+                }
+                }
+                .padding()
+                .background(
+                    AppColors.cardBackground.opacity(0.3)
+                )
+                
+                NavigationLink(
+                    destination: SessionView().environmentObject(sessionStore),
+                    isActive: $navigateToSessionView,
+                    label: { EmptyView() }
+                )
+                .hidden()
+            }
+        }
+        .navigationBarHidden(true)
+        .onAppear {
+            // Trigger animations when view appears
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                withAnimation {
+                    animateCards = true
                 }
             }
         }
@@ -267,81 +486,194 @@ struct SessionView: View {
     @State private var showEndSessionAlert = false
     @State private var showLog = false
     @State private var showInstructions: Bool = false
+    @State private var animateItems = false
     
     var body: some View {
-        VStack {
-            // List of registered players from the current session with scroll capability
-            ScrollView {
-                if let session = sessionStore.currentSession {
-                    ForEach(session.buyIns.keys.sorted(), id: \.self) { player in
-                        if session.cashOuts[player] != nil {
-                            Text(player)
-                                .frame(maxWidth: .infinity)
-                                .padding()
-                                .background(Color.gray.opacity(0.2))
-                                .cornerRadius(8)
-                                .foregroundColor(.gray)
-                                .padding(.horizontal)
-                        } else {
-                            Button(action: {
-                                selectedPlayer = player
-                            }) {
-                                Text(player)
-                                    .frame(maxWidth: .infinity)
-                                    .padding()
-                                    .background(Color.gray.opacity(0.2))
-                                    .cornerRadius(8)
-                            }
-                            .padding(.horizontal)
-                        }
+        ZStack {
+            // Background gradient for SessionView
+            LinearGradient(
+                gradient: Gradient(colors: [
+                    AppColors.background,
+                    AppColors.background.opacity(0.9),
+                    AppColors.cardBackground.opacity(0.8)
+                ]),
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .ignoresSafeArea()
+            
+            VStack(spacing: 0) {
+                // Header with session info
+                VStack {
+                    if let session = sessionStore.currentSession {
+                        Text("Active Session")
+                            .font(.headline)
+                            .foregroundColor(AppColors.secondaryAccent)
+                        
+                        Text(session.formattedDate)
+                            .font(.subheadline)
+                            .foregroundColor(AppColors.secondaryText)
                     }
                 }
-            }
-            
-            Spacer()
-            
-            // New Player button moved to the bottom
-            Button("New Player") {
-                showNewPlayerRegistration = true
-            }
-            .frame(maxWidth: .infinity)
-            .padding()
-            .background(LinearGradient(gradient: Gradient(colors: [Color.red, Color.yellow]), startPoint: .topLeading, endPoint: .bottomTrailing))
-            .cornerRadius(8)
-            .foregroundColor(.white)
-            .shadow(color: Color.gray.opacity(0.5), radius: 5, x: 0, y: 2)
-            .padding(.horizontal)
-
-            // Totals and End Session buttons
-            HStack {
-                Button("View Totals") {
-                    showTotals = true
-                }
+                .frame(maxWidth: .infinity)
                 .padding()
+                .background(AppColors.cardBackground)
+            
+                // List of registered players
+                ScrollView {
+                    VStack(spacing: 12) {
+                    if let session = sessionStore.currentSession {
+                        ForEach(session.buyIns.keys.sorted(), id: \.self) { player in
+                            let isCashedOut = session.cashOuts[player] != nil
+                            let buyInAmount = session.buyIns[player] ?? 0
+                            
+                            HStack {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(player)
+                                        .font(.headline)
+                                        .foregroundColor(isCashedOut ? AppColors.secondaryText : AppColors.text)
+                                    
+                                    Text("Buy-In: $\(buyInAmount, specifier: "%.2f")")
+                                        .font(.subheadline)
+                                        .foregroundColor(AppColors.secondaryText)
+                                    
+                                    if let cashOut = session.cashOuts[player] {
+                                        let net = cashOut - buyInAmount
+                                        let netColor = net >= 0 ? AppColors.success : AppColors.accent
+                                        
+                                        Text("Cashed Out: $\(cashOut, specifier: "%.2f")")
+                                            .font(.subheadline)
+                                            .foregroundColor(AppColors.secondaryText)
+                                        
+                                        Text("Net: \(net >= 0 ? "+" : "")\(net, specifier: "$%.2f")")
+                                            .font(.subheadline)
+                                            .foregroundColor(netColor)
+                                    }
+                                }
+                                
+                                Spacer()
+                                
+                                if isCashedOut {
+                                    Image(systemName: "checkmark.circle.fill")
+                                        .foregroundColor(AppColors.success)
+                                        .font(.title2)
+                                } else {
+                                    Image(systemName: "person.circle.fill")
+                                        .foregroundColor(AppColors.secondaryAccent)
+                                        .font(.title2)
+                                }
+                            }
+                            .padding()
+                            .background(AppColors.cardBackground)
+                            .cornerRadius(12)
+                            .shadow(color: Color.black.opacity(0.1), radius: 3, x: 0, y: 2)
+                            .padding(.horizontal)
+                            .opacity(isCashedOut ? 0.7 : 1.0)
+                            .onTapGesture {
+                                if !isCashedOut {
+                                    selectedPlayer = player
+                                }
+                            }
+                            .opacity(animateItems ? 1 : 0)
+                            .offset(y: animateItems ? 0 : 20)
+                            .animation(.spring(response: 0.3, dampingFraction: 0.7).delay(Double(session.buyIns.keys.sorted().firstIndex(of: player) ?? 0) * 0.1), value: animateItems)
+                        }
+                    }
+                    }
+                    .padding(.vertical)
+                }
                 
                 Spacer()
                 
-                Button("View Log") {
-                    showLog = true
+                // Action buttons
+                VStack(spacing: 16) {
+                Button(action: {
+                    showNewPlayerRegistration = true
+                }) {
+                    HStack {
+                        Image(systemName: "person.badge.plus")
+                            .font(.headline)
+                        Text("New Player")
+                            .font(.headline)
+                    }
+                }
+                .buttonStyle(PrimaryButtonStyle())
+                
+                HStack(spacing: 16) {
+                    Button(action: {
+                        showTotals = true
+                    }) {
+                        VStack {
+                            Image(systemName: "dollarsign.circle.fill")
+                                .font(.title2)
+                            Text("Totals")
+                                .font(.caption)
+                        }
+                    }
+                    .buttonStyle(SecondaryButtonStyle())
+                    .frame(maxWidth: .infinity)
+                    
+                    Button(action: {
+                        showLog = true
+                    }) {
+                        VStack {
+                            Image(systemName: "list.bullet.clipboard")
+                                .font(.title2)
+                            Text("Log")
+                                .font(.caption)
+                        }
+                    }
+                    .buttonStyle(SecondaryButtonStyle())
+                    .frame(maxWidth: .infinity)
+                    
+                    Button(action: {
+                        showEndSessionAlert = true
+                    }) {
+                        VStack {
+                            Image(systemName: "xmark.circle.fill")
+                                .font(.title2)
+                            Text("End")
+                                .font(.caption)
+                        }
+                    }
+                    .buttonStyle(SecondaryButtonStyle())
+                    .frame(maxWidth: .infinity)
+                }
                 }
                 .padding()
-                
-                Spacer()
-                
-                Button("End Session") {
-                    showEndSessionAlert = true
-                }
-                .padding()
+                .background(
+                    AppColors.cardBackground.opacity(0.3)
+                )
             }
-            .padding()
         }
-        .navigationBarTitle("Active Session", displayMode: .inline)
+        .navigationBarBackButtonHidden(true)
         .toolbar {
+            ToolbarItem(placement: .navigationBarLeading) {
+                Button(action: {
+                    dismiss()
+                }) {
+                    HStack {
+                        Image(systemName: "chevron.left")
+                        Text("Home")
+                    }
+                    .foregroundColor(AppColors.secondaryAccent)
+                }
+            }
+            
             ToolbarItem(placement: .navigationBarTrailing) {
                 Button(action: {
                     showInstructions = true
                 }) {
                     Image(systemName: "questionmark.circle")
+                        .foregroundColor(AppColors.secondaryAccent)
+                }
+            }
+        }
+        .onAppear {
+            // Trigger animations when view appears
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                withAnimation {
+                    animateItems = true
                 }
             }
         }
@@ -393,37 +725,161 @@ struct BuyInSelectionView: View {
     @Environment(\.presentationMode) var presentationMode
     @State private var manualAmount: String = ""
     @State private var showManualEntry = false
-    @State private var showCashOutEntry = false  // <-- Added cashOutEntry state
-    @State private var cashOutAmount: String = "" // <-- Added cashOutAmount state
+    @State private var showCashOutEntry = false
+    @State private var cashOutAmount: String = ""
     @State private var showConfirmationAlert = false
     @State private var confirmationMessage: String = ""
+    @State private var animateItems = false
     
     var body: some View {
         NavigationView {
-            List {
-                Section(header: Text("Buy-In Options")) {
-                    ForEach([10, 20, 30, 40, 50], id: \.self) { amount in
-                        Button("$\(amount)") {
-                            sessionStore.addBuyIn(for: player, amount: Double(amount))
-                            confirmationMessage = "Added buy-in of $\(amount) for \(player)"
-                            showConfirmationAlert = true
+            ZStack {
+                AppColors.background.ignoresSafeArea()
+                
+                VStack(spacing: 0) {
+                    // Header with player info
+                    VStack {
+                        Image(systemName: "person.circle.fill")
+                            .font(.system(size: 60))
+                            .foregroundColor(AppColors.secondaryAccent)
+                            .padding(.top)
+                        
+                        Text(player)
+                            .font(.title)
+                            .fontWeight(.bold)
+                            .foregroundColor(AppColors.text)
+                            .padding(.bottom, 5)
+                        
+                        Text("Select an action")
+                            .font(.subheadline)
+                            .foregroundColor(AppColors.secondaryText)
+                            .padding(.bottom)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .background(AppColors.cardBackground)
+                    
+                    ScrollView {
+                        VStack(spacing: 20) {
+                            // Buy-in options section
+                            VStack(alignment: .leading, spacing: 12) {
+                                Text("BUY-IN OPTIONS")
+                                    .font(.caption)
+                                    .fontWeight(.bold)
+                                    .foregroundColor(AppColors.secondaryAccent)
+                                    .padding(.horizontal)
+                                
+                                VStack(spacing: 10) {
+                                    ForEach([10, 20, 30, 40, 50], id: \.self) { amount in
+                                        Button(action: {
+                                            sessionStore.addBuyIn(for: player, amount: Double(amount))
+                                            confirmationMessage = "Added buy-in of $\(amount) for \(player)"
+                                            showConfirmationAlert = true
+                                        }) {
+                                            HStack {
+                                                Image(systemName: "dollarsign.circle.fill")
+                                                    .font(.title3)
+                                                    .foregroundColor(AppColors.secondaryAccent)
+                                                
+                                                Text("$\(amount)")
+                                                    .font(.headline)
+                                                    .foregroundColor(AppColors.text)
+                                                
+                                                Spacer()
+                                                
+                                                Image(systemName: "chevron.right")
+                                                    .foregroundColor(AppColors.secondaryText)
+                                            }
+                                            .padding()
+                                            .background(AppColors.cardBackground)
+                                            .cornerRadius(12)
+                                        }
+                                        .opacity(animateItems ? 1 : 0)
+                                        .offset(y: animateItems ? 0 : 20)
+                                        .animation(.spring(response: 0.3, dampingFraction: 0.7).delay(Double([10, 20, 30, 40, 50].firstIndex(of: amount) ?? 0) * 0.1), value: animateItems)
+                                    }
+                                    
+                                    Button(action: {
+                                        showManualEntry = true
+                                    }) {
+                                        HStack {
+                                            Image(systemName: "keyboard")
+                                                .font(.title3)
+                                                .foregroundColor(AppColors.secondaryAccent)
+                                            
+                                            Text("Custom Amount")
+                                                .font(.headline)
+                                                .foregroundColor(AppColors.text)
+                                            
+                                            Spacer()
+                                            
+                                            Image(systemName: "chevron.right")
+                                                .foregroundColor(AppColors.secondaryText)
+                                        }
+                                        .padding()
+                                        .background(AppColors.cardBackground)
+                                        .cornerRadius(12)
+                                    }
+                                    .opacity(animateItems ? 1 : 0)
+                                    .offset(y: animateItems ? 0 : 20)
+                                    .animation(.spring(response: 0.3, dampingFraction: 0.7).delay(0.5), value: animateItems)
+                                }
+                                .padding(.horizontal)
+                            }
+                            .padding(.top)
+                            
+                            // Cash out section
+                            VStack(alignment: .leading, spacing: 12) {
+                                Text("LEAVING THE GAME")
+                                    .font(.caption)
+                                    .fontWeight(.bold)
+                                    .foregroundColor(AppColors.success)
+                                    .padding(.horizontal)
+                                
+                                Button(action: {
+                                    showCashOutEntry = true
+                                }) {
+                                    HStack {
+                                        Image(systemName: "arrow.up.circle.fill")
+                                            .font(.title3)
+                                            .foregroundColor(AppColors.success)
+                                        
+                                        Text("Cash Out")
+                                            .font(.headline)
+                                            .foregroundColor(AppColors.text)
+                                        
+                                        Spacer()
+                                        
+                                        Image(systemName: "chevron.right")
+                                            .foregroundColor(AppColors.secondaryText)
+                                    }
+                                    .padding()
+                                    .background(AppColors.cardBackground)
+                                    .cornerRadius(12)
+                                    .padding(.horizontal)
+                                }
+                                .opacity(animateItems ? 1 : 0)
+                                .offset(y: animateItems ? 0 : 20)
+                                .animation(.spring(response: 0.3, dampingFraction: 0.7).delay(0.6), value: animateItems)
+                            }
                         }
-                    }
-                    Button("Manual") {
-                        showManualEntry = true
-                    }
-                }
-                Section(header: Text("Leaving")) {
-                    Button("Cash Out") {
-                        showCashOutEntry = true
+                        .padding(.vertical)
                     }
                 }
             }
-            .navigationTitle("Buy-In for \(player)")
+            .navigationTitle("Player Actions")
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") {
                         presentationMode.wrappedValue.dismiss()
+                    }
+                }
+            }
+            .onAppear {
+                // Trigger animations when view appears
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                    withAnimation {
+                        animateItems = true
                     }
                 }
             }
@@ -481,6 +937,7 @@ struct BuyInSelectionView: View {
 struct TotalsView: View {
     @EnvironmentObject var sessionStore: SessionStore
     @Environment(\.presentationMode) var presentationMode
+    @State private var animateItems = false
     
     // Computed property to calculate the table balance
     var tableBalance: Double {
@@ -492,40 +949,182 @@ struct TotalsView: View {
         return 0.0
     }
     
+    // Computed property to calculate total profit/loss
+    var totalProfitLoss: Double {
+        if let session = sessionStore.currentSession {
+            var total = 0.0
+            for player in session.buyIns.keys {
+                let buyIn = session.buyIns[player] ?? 0
+                let cashOut = session.cashOuts[player] ?? 0
+                total += (cashOut - buyIn)
+            }
+            return total
+        }
+        return 0.0
+    }
+    
     var body: some View {
         NavigationView {
-            List {
-                Section(header: Text("Players")) {
-                    if let session = sessionStore.currentSession {
-                        ForEach(session.buyIns.keys.sorted(), id: \.self) { player in
-                            if let buyInTotal = session.buyIns[player] {
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text(player)
+            ZStack {
+                AppColors.background.ignoresSafeArea()
+                
+                VStack(spacing: 0) {
+                    // Header with summary info
+                    VStack(spacing: 8) {
+                        Text("Session Summary")
+                            .font(.title2)
+                            .fontWeight(.bold)
+                            .foregroundColor(AppColors.text)
+                        
+                        if let session = sessionStore.currentSession {
+                            HStack {
+                                VStack {
+                                    Text("Players")
+                                        .font(.caption)
+                                        .foregroundColor(AppColors.secondaryText)
+                                    Text("\(session.buyIns.count)")
                                         .font(.headline)
-                                    Text("Buy-In: $\(buyInTotal, specifier: "%.2f")")
-                                    if let cashOut = session.cashOuts[player] {
-                                        let net = cashOut - buyInTotal
-                                        Text("Cashed Out: $\(cashOut, specifier: "%.2f")")
-                                        Text("Net: $\(net, specifier: "%.2f")")
-                                            .foregroundColor(.gray)
+                                        .foregroundColor(AppColors.secondaryAccent)
+                                }
+                                .frame(maxWidth: .infinity)
+                                
+                                Divider()
+                                    .background(AppColors.secondaryText)
+                                    .frame(height: 30)
+                                
+                                VStack {
+                                    Text("Total Buy-In")
+                                        .font(.caption)
+                                        .foregroundColor(AppColors.secondaryText)
+                                    Text("$\(session.buyIns.values.reduce(0, +), specifier: "%.2f")")
+                                        .font(.headline)
+                                        .foregroundColor(AppColors.secondaryAccent)
+                                }
+                                .frame(maxWidth: .infinity)
+                                
+                                Divider()
+                                    .background(AppColors.secondaryText)
+                                    .frame(height: 30)
+                                
+                                VStack {
+                                    Text("Balance")
+                                        .font(.caption)
+                                        .foregroundColor(AppColors.secondaryText)
+                                    Text("$\(tableBalance, specifier: "%.2f")")
+                                        .font(.headline)
+                                        .foregroundColor(tableBalance >= 0 ? AppColors.success : AppColors.accent)
+                                }
+                                .frame(maxWidth: .infinity)
+                            }
+                            .padding(.vertical, 8)
+                            .padding(.horizontal)
+                            .background(AppColors.cardBackground.opacity(0.5))
+                            .cornerRadius(8)
+                            .padding(.horizontal)
+                        }
+                    }
+                    .padding()
+                    .background(AppColors.cardBackground)
+                    
+                    // Player results
+                    List {
+                        Section(header: Text("Player Results")
+                            .font(.headline)
+                            .foregroundColor(AppColors.secondaryAccent)) {
+                            if let session = sessionStore.currentSession {
+                                ForEach(session.buyIns.keys.sorted(), id: \.self) { player in
+                                    if let buyInTotal = session.buyIns[player] {
+                                        HStack {
+                                            VStack(alignment: .leading, spacing: 4) {
+                                                Text(player)
+                                                    .font(.headline)
+                                                    .foregroundColor(AppColors.text)
+                                                
+                                                HStack {
+                                                    Image(systemName: "arrow.down.circle.fill")
+                                                        .foregroundColor(AppColors.secondaryAccent)
+                                                        .font(.caption)
+                                                    Text("Buy-In: $\(buyInTotal, specifier: "%.2f")")
+                                                        .font(.subheadline)
+                                                        .foregroundColor(AppColors.secondaryText)
+                                                }
+                                                
+                                                if let cashOut = session.cashOuts[player] {
+                                                    let net = cashOut - buyInTotal
+                                                    let netColor = net >= 0 ? AppColors.success : AppColors.accent
+                                                    
+                                                    HStack {
+                                                        Image(systemName: "arrow.up.circle.fill")
+                                                            .foregroundColor(AppColors.success)
+                                                            .font(.caption)
+                                                        Text("Cashed Out: $\(cashOut, specifier: "%.2f")")
+                                                            .font(.subheadline)
+                                                            .foregroundColor(AppColors.secondaryText)
+                                                    }
+                                                    
+                                                    HStack {
+                                                        Image(systemName: net >= 0 ? "plus.circle.fill" : "minus.circle.fill")
+                                                            .foregroundColor(netColor)
+                                                            .font(.caption)
+                                                        Text("Net: \(net >= 0 ? "+" : "")\(net, specifier: "$%.2f")")
+                                                            .font(.subheadline)
+                                                            .foregroundColor(netColor)
+                                                    }
+                                                } else {
+                                                    Text("Not cashed out")
+                                                        .font(.subheadline)
+                                                        .foregroundColor(AppColors.accent)
+                                                        .italic()
+                                                }
+                                            }
+                                            
+                                            Spacer()
+                                            
+                                            if let cashOut = session.cashOuts[player] {
+                                                let net = cashOut - buyInTotal
+                                                if net >= 0 {
+                                                    Image(systemName: "arrow.up.circle.fill")
+                                                        .foregroundColor(AppColors.success)
+                                                        .font(.title2)
+                                                } else {
+                                                    Image(systemName: "arrow.down.circle.fill")
+                                                        .foregroundColor(AppColors.accent)
+                                                        .font(.title2)
+                                                }
+                                            } else {
+                                                Image(systemName: "questionmark.circle.fill")
+                                                    .foregroundColor(AppColors.secondaryText)
+                                                    .font(.title2)
+                                            }
+                                        }
+                                        .padding(.vertical, 4)
+                                        .listRowBackground(AppColors.cardBackground.opacity(0.8))
+                                        .opacity(animateItems ? 1 : 0)
+                                        .offset(x: animateItems ? 0 : -20)
+                                        .animation(.easeOut.delay(Double(session.buyIns.keys.sorted().firstIndex(of: player) ?? 0) * 0.1), value: animateItems)
                                     }
                                 }
-                                .padding(.vertical, 4)
                             }
                         }
                     }
-                }
-                
-                // New section displaying the table-wide balance
-                Section(header: Text("Table Balance")) {
-                    Text("$\(tableBalance, specifier: "%.2f")")
+                    .listStyle(InsetGroupedListStyle())
+                    .scrollContentBackground(.hidden)
                 }
             }
             .navigationTitle("Current Totals")
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Close") {
                         presentationMode.wrappedValue.dismiss()
+                    }
+                }
+            }
+            .onAppear {
+                // Trigger animations when view appears
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                    withAnimation {
+                        animateItems = true
                     }
                 }
             }
@@ -538,21 +1137,94 @@ struct TotalsView: View {
 struct LogView: View {
     @EnvironmentObject var sessionStore: SessionStore
     @Environment(\.presentationMode) var presentationMode
+    @State private var animateItems = false
     
     var body: some View {
         NavigationView {
-            List {
-                if let session = sessionStore.currentSession {
-                    ForEach(session.logRecords.reversed(), id: \.id) { record in
-                    Text("\(record.formattedTime) - \(record.player): \(record.type.rawValue) $\(record.amount, specifier: "%.2f")")
+            ZStack {
+                AppColors.background.ignoresSafeArea()
+                
+                VStack(spacing: 0) {
+                    // Header
+                    VStack {
+                        Text("Transaction History")
+                            .font(.title2)
+                            .fontWeight(.bold)
+                            .foregroundColor(AppColors.text)
+                            .padding(.vertical)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .background(AppColors.cardBackground)
+                    
+                    // Log entries
+                    if let session = sessionStore.currentSession {
+                        if session.logRecords.isEmpty {
+                            VStack {
+                                Spacer()
+                                Text("No transactions yet")
+                                    .font(.headline)
+                                    .foregroundColor(AppColors.secondaryText)
+                                    .padding()
+                                Spacer()
+                            }
+                        } else {
+                            List {
+                                ForEach(Array(session.logRecords.reversed().enumerated()), id: \.element.id) { index, record in
+                                    HStack {
+                                        VStack(alignment: .leading) {
+                                            Text(record.player)
+                                                .font(.headline)
+                                                .foregroundColor(AppColors.text)
+                                            
+                                            Text(record.formattedTime)
+                                                .font(.caption)
+                                                .foregroundColor(AppColors.secondaryText)
+                                        }
+                                        
+                                        Spacer()
+                                        
+                                        HStack {
+                                            Image(systemName: record.type.icon)
+                                                .foregroundColor(record.type.color)
+                                            
+                                            VStack(alignment: .trailing) {
+                                                Text(record.type.rawValue)
+                                                    .font(.caption)
+                                                    .foregroundColor(AppColors.secondaryText)
+                                                
+                                                Text("$\(record.amount, specifier: "%.2f")")
+                                                    .font(.headline)
+                                                    .foregroundColor(record.type.color)
+                                            }
+                                        }
+                                    }
+                                    .padding(.vertical, 4)
+                                    .listRowBackground(AppColors.cardBackground.opacity(0.8))
+                                    .opacity(animateItems ? 1 : 0)
+                                    .offset(y: animateItems ? 0 : 20)
+                                    .animation(.spring(response: 0.3, dampingFraction: 0.7).delay(Double(index) * 0.05), value: animateItems)
+                                }
+                            }
+                            .listStyle(PlainListStyle())
+                            .scrollContentBackground(.hidden)
+                        }
                     }
                 }
             }
             .navigationTitle("Game Log")
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Close") {
                         presentationMode.wrappedValue.dismiss()
+                    }
+                }
+            }
+            .onAppear {
+                // Trigger animations when view appears
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                    withAnimation {
+                        animateItems = true
                     }
                 }
             }
@@ -564,26 +1236,130 @@ struct LogView: View {
 
 struct InstructionsView: View {
     @Environment(\.presentationMode) var presentationMode
+    @State private var animateItems = false
+    
+    func instructionSection(icon: String, title: String, instructions: [String], delay: Double) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 12) {
+                Image(systemName: icon)
+                    .font(.title2)
+                    .foregroundColor(AppColors.secondaryAccent)
+                
+                Text(title)
+                    .font(.headline)
+                    .foregroundColor(AppColors.text)
+            }
+            
+            VStack(alignment: .leading, spacing: 8) {
+                ForEach(instructions, id: \.self) { instruction in
+                    HStack(alignment: .top, spacing: 8) {
+                        Text("•")
+                            .foregroundColor(AppColors.secondaryAccent)
+                        Text(instruction)
+                            .foregroundColor(AppColors.secondaryText)
+                    }
+                }
+            }
+            .padding(.leading)
+        }
+        .padding()
+        .background(AppColors.cardBackground)
+        .cornerRadius(12)
+        .padding(.horizontal)
+        .opacity(animateItems ? 1 : 0)
+        .offset(y: animateItems ? 0 : 20)
+        .animation(.spring(response: 0.3, dampingFraction: 0.7).delay(delay), value: animateItems)
+    }
+    
     var body: some View {
         NavigationView {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
-                    Text("Welcome to Poker Home Game Tracker!")
-                        .font(.title)
-                        .padding(.bottom, 8)
-                    Text("Instructions:")
-                        .font(.headline)
-                    Text("• Tap 'Start New Session' to begin a new game.")
-                    Text("• During a session, tap on a player's name to add a buy-in amount.")
-                    Text("• For cash outs, tap the 'Cash Out' option and enter the chip stack's dollar value (displayed with a $ sign).")
-                    Text("• Use the 'New Player' button to register additional players.")
-                    Text("• View current totals with the 'View Totals' button and see individual transactions with the 'View Log' button.")
-                    Text("• End your session by tapping 'End Session' and confirming the action.")
-                    Text("• Export your session data by tapping the menu button (⋯) in the top-right corner and selecting 'Export Sessions'. You can choose between JSON and CSV formats and select which sessions to export.")
+            ZStack {
+                AppColors.background.ignoresSafeArea()
+                
+                ScrollView {
+                    VStack(spacing: 24) {
+                        // Header
+                        VStack(spacing: 16) {
+                            Image(systemName: "questionmark.circle.fill")
+                                .font(.system(size: 60))
+                                .foregroundColor(AppColors.secondaryAccent)
+                                .padding(.top)
+                            
+                            Text("Welcome to Poker Chips")
+                                .font(.title)
+                                .fontWeight(.bold)
+                                .foregroundColor(AppColors.text)
+                                .multilineTextAlignment(.center)
+                            
+                            Text("Your Home Game Tracker")
+                                .font(.headline)
+                                .foregroundColor(AppColors.secondaryText)
+                                .multilineTextAlignment(.center)
+                                .padding(.bottom)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                        .background(AppColors.cardBackground)
+                        
+                        // Instructions
+                        VStack(alignment: .leading, spacing: 20) {
+                            instructionSection(
+                                icon: "play.circle.fill",
+                                title: "Getting Started",
+                                instructions: [
+                                    "Tap 'Start New Session' to begin a new game",
+                                    "Use 'New Player' to register players as they join"
+                                ],
+                                delay: 0.1
+                            )
+                            
+                            instructionSection(
+                                icon: "dollarsign.circle.fill",
+                                title: "Managing Buy-Ins",
+                                instructions: [
+                                    "Tap on a player's name to add a buy-in amount",
+                                    "Choose from preset amounts or enter a custom value"
+                                ],
+                                delay: 0.2
+                            )
+                            
+                            instructionSection(
+                                icon: "arrow.up.circle.fill",
+                                title: "Cash Outs",
+                                instructions: [
+                                    "When a player leaves, tap their name and select 'Cash Out'",
+                                    "Enter the chip stack's dollar value"
+                                ],
+                                delay: 0.3
+                            )
+                            
+                            instructionSection(
+                                icon: "chart.bar.fill",
+                                title: "Tracking & Analysis",
+                                instructions: [
+                                    "View current totals with the 'Totals' button",
+                                    "See transaction history with the 'Log' button",
+                                    "End your session by tapping 'End'"
+                                ],
+                                delay: 0.4
+                            )
+                            
+                            instructionSection(
+                                icon: "square.and.arrow.up",
+                                title: "Exporting Data",
+                                instructions: [
+                                    "Export your session data in JSON or CSV format",
+                                    "Select which sessions to include in your export"
+                                ],
+                                delay: 0.5
+                            )
+                        }
+                        .padding(.bottom)
+                    }
                 }
-                .padding()
             }
             .navigationTitle("Instructions")
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Close") {
@@ -591,51 +1367,151 @@ struct InstructionsView: View {
                     }
                 }
             }
+            .onAppear {
+                // Trigger animations when view appears
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                    withAnimation {
+                        animateItems = true
+                    }
+                }
+            }
         }
     }
 }
 
-// MARK: - App Entry Point
+
+// MARK: - New Player Registration View
 
 struct NewPlayerRegistrationView: View {
     @EnvironmentObject var sessionStore: SessionStore
     @Environment(\.presentationMode) var presentationMode
     @State private var manualName: String = ""
+    @State private var animateItems = false
     let onSelect: (String) -> Void
     
     var body: some View {
         NavigationView {
-            Form {
-                Section(header: Text("Enter New Player Name")) {
-                    TextField("Player Name", text: $manualName)
-                    Button("Register") {
-                        if !manualName.isEmpty {
-                            // Save the new name for future quick selection
-                            sessionStore.addPlayerNameToSaved(manualName)
-                            onSelect(manualName)
-                        }
-                    }
-                }
+            ZStack {
+                AppColors.background.ignoresSafeArea()
                 
-                if !sessionStore.savedPlayerNames.isEmpty {
-                    Section(header: Text("Quick Select")) {
-                        ForEach(sessionStore.savedPlayerNames.indices, id: \.self) { index in
-                            let name = sessionStore.savedPlayerNames[index]
-                            Button(name) {
-                                onSelect(name)
+                VStack(spacing: 0) {
+                    // Header
+                    VStack {
+                        Image(systemName: "person.badge.plus")
+                            .font(.system(size: 50))
+                            .foregroundColor(AppColors.secondaryAccent)
+                            .padding(.top)
+                        
+                        Text("Add New Player")
+                            .font(.title2)
+                            .fontWeight(.bold)
+                            .foregroundColor(AppColors.text)
+                            .padding(.bottom)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .background(AppColors.cardBackground)
+                    
+                    ScrollView {
+                        VStack(spacing: 20) {
+                            // New player input
+                            VStack(alignment: .leading, spacing: 12) {
+                                Text("ENTER PLAYER NAME")
+                                    .font(.caption)
+                                    .fontWeight(.bold)
+                                    .foregroundColor(AppColors.secondaryAccent)
+                                    .padding(.horizontal)
+                                
+                                VStack(spacing: 16) {
+                                    TextField("Player Name", text: $manualName)
+                                        .padding()
+                                        .background(AppColors.cardBackground)
+                                        .cornerRadius(12)
+                                        .foregroundColor(AppColors.text)
+                                    
+                                    Button(action: {
+                                        if !manualName.isEmpty {
+                                            sessionStore.addPlayerNameToSaved(manualName)
+                                            onSelect(manualName)
+                                        }
+                                    }) {
+                                        HStack {
+                                            Image(systemName: "person.badge.plus")
+                                            Text("Register Player")
+                                                .font(.headline)
+                                        }
+                                        .frame(maxWidth: .infinity)
+                                        .padding()
+                                        .background(
+                                            LinearGradient(
+                                                gradient: Gradient(colors: [AppColors.accent, AppColors.accent.opacity(0.8)]),
+                                                startPoint: .topLeading,
+                                                endPoint: .bottomTrailing
+                                            )
+                                        )
+                                        .cornerRadius(12)
+                                        .foregroundColor(.white)
+                                    }
+                                    .disabled(manualName.isEmpty)
+                                    .opacity(manualName.isEmpty ? 0.6 : 1.0)
+                                }
+                                .padding(.horizontal)
                             }
-                            .swipeActions {
-                                Button(role: .destructive) {
-                                    sessionStore.removePlayerName(at: index)
-                                } label: {
-                                    Label("Delete", systemImage: "trash")
+                            .opacity(animateItems ? 1 : 0)
+                            .offset(y: animateItems ? 0 : 20)
+                            .animation(.spring(response: 0.3, dampingFraction: 0.7).delay(0.1), value: animateItems)
+                            
+                            // Saved players section
+                            if !sessionStore.savedPlayerNames.isEmpty {
+                                VStack(alignment: .leading, spacing: 12) {
+                                    Text("QUICK SELECT")
+                                        .font(.caption)
+                                        .fontWeight(.bold)
+                                        .foregroundColor(AppColors.secondaryAccent)
+                                        .padding(.horizontal)
+                                    
+                                    VStack(spacing: 8) {
+                                        ForEach(Array(sessionStore.savedPlayerNames.enumerated()), id: \.element) { index, name in
+                                            Button(action: {
+                                                onSelect(name)
+                                            }) {
+                                                HStack {
+                                                    Image(systemName: "person.circle.fill")
+                                                        .foregroundColor(AppColors.secondaryAccent)
+                                                    
+                                                    Text(name)
+                                                        .foregroundColor(AppColors.text)
+                                                    
+                                                    Spacer()
+                                                    
+                                                    Image(systemName: "chevron.right")
+                                                        .foregroundColor(AppColors.secondaryText)
+                                                }
+                                                .padding()
+                                                .background(AppColors.cardBackground)
+                                                .cornerRadius(12)
+                                            }
+                                            .contextMenu {
+                                                Button(role: .destructive) {
+                                                    sessionStore.removePlayerName(at: index)
+                                                } label: {
+                                                    Label("Delete", systemImage: "trash")
+                                                }
+                                            }
+                                            .opacity(animateItems ? 1 : 0)
+                                            .offset(y: animateItems ? 0 : 20)
+                                            .animation(.spring(response: 0.3, dampingFraction: 0.7).delay(0.2 + Double(index) * 0.05), value: animateItems)
+                                        }
+                                    }
+                                    .padding(.horizontal)
                                 }
                             }
                         }
+                        .padding(.vertical)
                     }
                 }
             }
             .navigationTitle("New Player")
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") {
@@ -643,26 +1519,162 @@ struct NewPlayerRegistrationView: View {
                     }
                 }
             }
+            .onAppear {
+                // Trigger animations when view appears
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                    withAnimation {
+                        animateItems = true
+                    }
+                }
+            }
         }
     }
 }
+
+// MARK: - Settings View
 
 struct SettingsView: View {
     @Environment(\.presentationMode) var presentationMode
     @AppStorage("vibrationEnabled") var vibrationEnabled: Bool = true
     @AppStorage("soundEnabled") var soundEnabled: Bool = true
+    @State private var animateItems = false
     
     var body: some View {
         NavigationView {
-            Form {
-                Toggle("Vibration", isOn: $vibrationEnabled)
-                Toggle("Sound", isOn: $soundEnabled)
+            ZStack {
+                AppColors.background.ignoresSafeArea()
+                
+                VStack(spacing: 0) {
+                    // Header
+                    VStack {
+                        Image(systemName: "gear")
+                            .font(.system(size: 50))
+                            .foregroundColor(AppColors.secondaryAccent)
+                            .padding(.top)
+                        
+                        Text("App Settings")
+                            .font(.title2)
+                            .fontWeight(.bold)
+                            .foregroundColor(AppColors.text)
+                            .padding(.bottom)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .background(AppColors.cardBackground)
+                    
+                    ScrollView {
+                        VStack(spacing: 20) {
+                            // Notification settings
+                            VStack(alignment: .leading, spacing: 12) {
+                                Text("NOTIFICATIONS")
+                                    .font(.caption)
+                                    .fontWeight(.bold)
+                                    .foregroundColor(AppColors.secondaryAccent)
+                                    .padding(.horizontal)
+                                
+                                VStack(spacing: 16) {
+                                    Toggle(isOn: $vibrationEnabled) {
+                                        HStack {
+                                            Image(systemName: "iphone.radiowaves.left.and.right")
+                                                .foregroundColor(AppColors.secondaryAccent)
+                                                .font(.headline)
+                                            
+                                            Text("Vibration")
+                                                .foregroundColor(AppColors.text)
+                                        }
+                                    }
+                                    .padding()
+                                    .background(AppColors.cardBackground)
+                                    .cornerRadius(12)
+                                    .toggleStyle(SwitchToggleStyle(tint: AppColors.accent))
+                                    
+                                    Toggle(isOn: $soundEnabled) {
+                                        HStack {
+                                            Image(systemName: "speaker.wave.2.fill")
+                                                .foregroundColor(AppColors.secondaryAccent)
+                                                .font(.headline)
+                                            
+                                            Text("Sound")
+                                                .foregroundColor(AppColors.text)
+                                        }
+                                    }
+                                    .padding()
+                                    .background(AppColors.cardBackground)
+                                    .cornerRadius(12)
+                                    .toggleStyle(SwitchToggleStyle(tint: AppColors.accent))
+                                }
+                                .padding(.horizontal)
+                            }
+                            .opacity(animateItems ? 1 : 0)
+                            .offset(y: animateItems ? 0 : 20)
+                            .animation(.spring(response: 0.3, dampingFraction: 0.7).delay(0.1), value: animateItems)
+                            
+                            // App info
+                            VStack(alignment: .leading, spacing: 12) {
+                                Text("ABOUT")
+                                    .font(.caption)
+                                    .fontWeight(.bold)
+                                    .foregroundColor(AppColors.secondaryAccent)
+                                    .padding(.horizontal)
+                                
+                                VStack(spacing: 16) {
+                                    HStack {
+                                        Image(systemName: "info.circle.fill")
+                                            .foregroundColor(AppColors.secondaryAccent)
+                                            .font(.headline)
+                                        
+                                        Text("Version 1.0")
+                                            .foregroundColor(AppColors.text)
+                                        
+                                        Spacer()
+                                    }
+                                    .padding()
+                                    .background(AppColors.cardBackground)
+                                    .cornerRadius(12)
+                                    
+                                    HStack {
+                                        Image(systemName: "person.fill")
+                                            .foregroundColor(AppColors.secondaryAccent)
+                                            .font(.headline)
+                                        
+                                        VStack(alignment: .leading, spacing: 4) {
+                                            Text("Created by Jeff")
+                                                .foregroundColor(AppColors.text)
+                                            Text("and Cline, of course.")
+                                                .font(.caption)
+                                                .foregroundColor(AppColors.secondaryText)
+                                                .italic()
+                                        }
+                                        
+                                        Spacer()
+                                    }
+                                    .padding()
+                                    .background(AppColors.cardBackground)
+                                    .cornerRadius(12)
+                                }
+                                .padding(.horizontal)
+                            }
+                            .opacity(animateItems ? 1 : 0)
+                            .offset(y: animateItems ? 0 : 20)
+                            .animation(.spring(response: 0.3, dampingFraction: 0.7).delay(0.2), value: animateItems)
+                        }
+                        .padding(.vertical)
+                    }
+                }
             }
             .navigationTitle("Settings")
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Done") {
                         presentationMode.wrappedValue.dismiss()
+                    }
+                }
+            }
+            .onAppear {
+                // Trigger animations when view appears
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                    withAnimation {
+                        animateItems = true
                     }
                 }
             }
@@ -682,68 +1694,202 @@ struct ExportView: View {
     @State private var showShareSheet = false
     @State private var showAlert = false
     @State private var alertMessage = ""
+    @State private var animateItems = false
     
     enum ExportFormat: String, CaseIterable, Identifiable {
         case json = "JSON"
         case csv = "CSV"
         
         var id: String { self.rawValue }
+        
+        var icon: String {
+            switch self {
+            case .json:
+                return "curlybraces"
+            case .csv:
+                return "tablecells"
+            }
+        }
     }
     
     var body: some View {
         NavigationView {
-            Form {
-                Section(header: Text("Export Format")) {
-                    Picker("Format", selection: $selectedFormat) {
-                        ForEach(ExportFormat.allCases) { format in
-                            Text(format.rawValue).tag(format)
-                        }
-                    }
-                    .pickerStyle(SegmentedPickerStyle())
-                }
+            ZStack {
+                AppColors.background.ignoresSafeArea()
                 
-                Section(header: Text("Select Sessions")) {
-                    Button("Select All") {
-                        if selectedSessions.count == sessionStore.sessions.count {
-                            selectedSessions.removeAll()
-                        } else {
-                            selectedSessions = Set(sessionStore.sessions.map { $0.id })
-                        }
+                VStack(spacing: 0) {
+                    // Header
+                    VStack {
+                        Image(systemName: "square.and.arrow.up")
+                            .font(.system(size: 50))
+                            .foregroundColor(AppColors.secondaryAccent)
+                            .padding(.top)
+                        
+                        Text("Export Session Data")
+                            .font(.title2)
+                            .fontWeight(.bold)
+                            .foregroundColor(AppColors.text)
+                            .padding(.bottom)
                     }
+                    .frame(maxWidth: .infinity)
+                    .background(AppColors.cardBackground)
                     
-                    ForEach(sessionStore.sessions) { session in
-                        HStack {
-                            Text("Game – \(session.formattedDate)")
-                            Spacer()
-                            if selectedSessions.contains(session.id) {
-                                Image(systemName: "checkmark")
-                                    .foregroundColor(.blue)
+                    ScrollView {
+                        VStack(spacing: 20) {
+                            // Format selection
+                            VStack(alignment: .leading, spacing: 12) {
+                                Text("EXPORT FORMAT")
+                                    .font(.caption)
+                                    .fontWeight(.bold)
+                                    .foregroundColor(AppColors.secondaryAccent)
+                                    .padding(.horizontal)
+                                
+                                HStack(spacing: 16) {
+                                    ForEach(ExportFormat.allCases) { format in
+                                        Button(action: {
+                                            selectedFormat = format
+                                        }) {
+                                            VStack(spacing: 8) {
+                                                Image(systemName: format.icon)
+                                                    .font(.title)
+                                                
+                                                Text(format.rawValue)
+                                                    .font(.headline)
+                                            }
+                                            .frame(maxWidth: .infinity)
+                                            .padding()
+                                            .background(selectedFormat == format ? AppColors.accent : AppColors.cardBackground)
+                                            .cornerRadius(12)
+                                            .foregroundColor(selectedFormat == format ? .white : AppColors.text)
+                                            .overlay(
+                                                RoundedRectangle(cornerRadius: 12)
+                                                    .stroke(selectedFormat == format ? AppColors.accent : AppColors.secondaryAccent, lineWidth: 1)
+                                            )
+                                        }
+                                    }
+                                }
+                                .padding(.horizontal)
                             }
-                        }
-                        .contentShape(Rectangle())
-                        .onTapGesture {
-                            if selectedSessions.contains(session.id) {
-                                selectedSessions.remove(session.id)
-                            } else {
-                                selectedSessions.insert(session.id)
+                            .opacity(animateItems ? 1 : 0)
+                            .offset(y: animateItems ? 0 : 20)
+                            .animation(.spring(response: 0.3, dampingFraction: 0.7).delay(0.1), value: animateItems)
+                            
+                            // Session selection
+                            VStack(alignment: .leading, spacing: 12) {
+                                HStack {
+                                    Text("SELECT SESSIONS")
+                                        .font(.caption)
+                                        .fontWeight(.bold)
+                                        .foregroundColor(AppColors.secondaryAccent)
+                                    
+                                    Spacer()
+                                    
+                                    Button(action: {
+                                        if selectedSessions.count == sessionStore.sessions.count {
+                                            selectedSessions.removeAll()
+                                        } else {
+                                            selectedSessions = Set(sessionStore.sessions.map { $0.id })
+                                        }
+                                    }) {
+                                        Text(selectedSessions.count == sessionStore.sessions.count ? "Deselect All" : "Select All")
+                                            .font(.caption)
+                                            .foregroundColor(AppColors.secondaryAccent)
+                                    }
+                                }
+                                .padding(.horizontal)
+                                
+                                if sessionStore.sessions.isEmpty {
+                                    Text("No sessions available to export")
+                                        .foregroundColor(AppColors.secondaryText)
+                                        .italic()
+                                        .frame(maxWidth: .infinity, alignment: .center)
+                                        .padding()
+                                        .background(AppColors.cardBackground)
+                                        .cornerRadius(12)
+                                        .padding(.horizontal)
+                                } else {
+                                    VStack(spacing: 8) {
+                                        ForEach(Array(sessionStore.sessions.enumerated()), id: \.element.id) { index, session in
+                                            Button(action: {
+                                                if selectedSessions.contains(session.id) {
+                                                    selectedSessions.remove(session.id)
+                                                } else {
+                                                    selectedSessions.insert(session.id)
+                                                }
+                                            }) {
+                                                HStack {
+                                                    VStack(alignment: .leading, spacing: 4) {
+                                                        Text("Game \(index + 1)")
+                                                            .font(.headline)
+                                                            .foregroundColor(AppColors.text)
+                                                        
+                                                        Text(session.formattedDate)
+                                                            .font(.subheadline)
+                                                            .foregroundColor(AppColors.secondaryText)
+                                                    }
+                                                    
+                                                    Spacer()
+                                                    
+                                                    if selectedSessions.contains(session.id) {
+                                                        Image(systemName: "checkmark.circle.fill")
+                                                            .foregroundColor(AppColors.secondaryAccent)
+                                                            .font(.title2)
+                                                    } else {
+                                                        Image(systemName: "circle")
+                                                            .foregroundColor(AppColors.secondaryText)
+                                                            .font(.title2)
+                                                    }
+                                                }
+                                                .padding()
+                                                .background(AppColors.cardBackground)
+                                                .cornerRadius(12)
+                                            }
+                                            .opacity(animateItems ? 1 : 0)
+                                            .offset(y: animateItems ? 0 : 20)
+                                            .animation(.spring(response: 0.3, dampingFraction: 0.7).delay(0.2 + Double(index) * 0.05), value: animateItems)
+                                        }
+                                    }
+                                    .padding(.horizontal)
+                                }
                             }
+                            .opacity(animateItems ? 1 : 0)
+                            .offset(y: animateItems ? 0 : 20)
+                            .animation(.spring(response: 0.3, dampingFraction: 0.7).delay(0.2), value: animateItems)
+                            
+                            // Export button
+                            Button(action: exportSessions) {
+                                HStack {
+                                    Image(systemName: "square.and.arrow.up")
+                                        .font(.headline)
+                                    Text("Export Data")
+                                        .font(.headline)
+                                }
+                                .frame(maxWidth: .infinity)
+                                .padding()
+                                .background(
+                                    LinearGradient(
+                                        gradient: Gradient(colors: [AppColors.accent, AppColors.accent.opacity(0.8)]),
+                                        startPoint: .topLeading,
+                                        endPoint: .bottomTrailing
+                                    )
+                                )
+                                .cornerRadius(12)
+                                .foregroundColor(.white)
+                                .padding(.horizontal)
+                                .opacity(selectedSessions.isEmpty || isExporting ? 0.5 : 1.0)
+                                .disabled(selectedSessions.isEmpty || isExporting)
+                            }
+                            .padding(.top)
+                            .opacity(animateItems ? 1 : 0)
+                            .offset(y: animateItems ? 0 : 20)
+                            .animation(.spring(response: 0.3, dampingFraction: 0.7).delay(0.3), value: animateItems)
                         }
+                        .padding(.vertical)
                     }
-                }
-                
-                Section {
-                    Button(action: exportSessions) {
-                        HStack {
-                            Spacer()
-                            Text("Export")
-                                .bold()
-                            Spacer()
-                        }
-                    }
-                    .disabled(selectedSessions.isEmpty || isExporting)
                 }
             }
             .navigationTitle("Export Sessions")
+            .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") {
@@ -762,6 +1908,14 @@ struct ExportView: View {
                     message: Text(alertMessage),
                     dismissButton: .default(Text("OK"))
                 )
+            }
+            .onAppear {
+                // Trigger animations when view appears
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                    withAnimation {
+                        animateItems = true
+                    }
+                }
             }
         }
     }
