@@ -64,13 +64,46 @@ class SessionStore: ObservableObject {
         }
     }
     
-    // Predefined players
-    let players = ["Jalen", "Rafa", "Adela", "Jeff", "Jack", "大可", "JQ", "Kyle", "Lin", "Lic哥", "威士忌组合"]
+    // Saved player names for quick selection
+    @Published var savedPlayerNames: [String] = [] {
+        didSet {
+            saveSavedPlayerNames()
+        }
+    }
     
-    // New initializer to load saved sessions from persistence
+    private let savedPlayerNamesKey = "saved_player_names"
+    
+    // New initializer to load saved sessions and player names from persistence
     init() {
         sessions = SessionPersistenceManager.shared.loadSessions()
         currentSession = SessionPersistenceManager.shared.loadActiveSession()
+        loadSavedPlayerNames()
+    }
+    
+    // Load saved player names from UserDefaults
+    private func loadSavedPlayerNames() {
+        if let data = UserDefaults.standard.stringArray(forKey: savedPlayerNamesKey) {
+            savedPlayerNames = data
+        }
+    }
+    
+    // Save player names to UserDefaults
+    private func saveSavedPlayerNames() {
+        UserDefaults.standard.set(savedPlayerNames, forKey: savedPlayerNamesKey)
+    }
+    
+    // Add a new player name to saved names if it doesn't already exist
+    func addPlayerNameToSaved(_ name: String) {
+        if !savedPlayerNames.contains(name) {
+            savedPlayerNames.append(name)
+        }
+    }
+    
+    // Remove a player name from saved names
+    func removePlayerName(at index: Int) {
+        if index >= 0 && index < savedPlayerNames.count {
+            savedPlayerNames.remove(at: index)
+        }
     }
     
     func startNewSession() {
@@ -132,6 +165,7 @@ struct HomeView: View {
     @State private var showSettings: Bool = false
     @State private var showInstructions: Bool = false
     @State private var navigateToSessionView: Bool = false
+    @State private var showExportView: Bool = false
     
     
     var pastSessionsSection: some View {
@@ -192,10 +226,20 @@ struct HomeView: View {
         .navigationTitle("Home Game Tracker")
         .toolbar {
             ToolbarItem(placement: .navigationBarTrailing) {
-                Button(action: {
-                    showSettings = true
-                }) {
-                    Image(systemName: "gear")
+                Menu {
+                    Button(action: {
+                        showExportView = true
+                    }) {
+                        Label("Export Sessions", systemImage: "square.and.arrow.up")
+                    }
+                    
+                    Button(action: {
+                        showSettings = true
+                    }) {
+                        Label("Settings", systemImage: "gear")
+                    }
+                } label: {
+                    Image(systemName: "ellipsis.circle")
                 }
             }
         }
@@ -204,6 +248,10 @@ struct HomeView: View {
         }
         .sheet(isPresented: $showSettings) {
             SettingsView()
+        }
+        .sheet(isPresented: $showExportView) {
+            ExportView()
+                .environmentObject(sessionStore)
         }
     }
 }
@@ -531,6 +579,7 @@ struct InstructionsView: View {
                     Text("• Use the 'New Player' button to register additional players.")
                     Text("• View current totals with the 'View Totals' button and see individual transactions with the 'View Log' button.")
                     Text("• End your session by tapping 'End Session' and confirming the action.")
+                    Text("• Export your session data by tapping the menu button (⋯) in the top-right corner and selecting 'Export Sessions'. You can choose between JSON and CSV formats and select which sessions to export.")
                 }
                 .padding()
             }
@@ -561,14 +610,27 @@ struct NewPlayerRegistrationView: View {
                     TextField("Player Name", text: $manualName)
                     Button("Register") {
                         if !manualName.isEmpty {
+                            // Save the new name for future quick selection
+                            sessionStore.addPlayerNameToSaved(manualName)
                             onSelect(manualName)
                         }
                     }
                 }
-                Section(header: Text("Quick Select")) {
-                    ForEach(sessionStore.players, id: \.self) { name in
-                        Button(name) {
-                            onSelect(name)
+                
+                if !sessionStore.savedPlayerNames.isEmpty {
+                    Section(header: Text("Quick Select")) {
+                        ForEach(sessionStore.savedPlayerNames.indices, id: \.self) { index in
+                            let name = sessionStore.savedPlayerNames[index]
+                            Button(name) {
+                                onSelect(name)
+                            }
+                            .swipeActions {
+                                Button(role: .destructive) {
+                                    sessionStore.removePlayerName(at: index)
+                                } label: {
+                                    Label("Delete", systemImage: "trash")
+                                }
+                            }
                         }
                     }
                 }
@@ -606,6 +668,146 @@ struct SettingsView: View {
             }
         }
     }
+}
+
+// MARK: - Export View
+
+struct ExportView: View {
+    @EnvironmentObject var sessionStore: SessionStore
+    @Environment(\.presentationMode) var presentationMode
+    @State private var selectedFormat: ExportFormat = .json
+    @State private var selectedSessions: Set<UUID> = []
+    @State private var isExporting = false
+    @State private var exportURL: URL? = nil
+    @State private var showShareSheet = false
+    @State private var showAlert = false
+    @State private var alertMessage = ""
+    
+    enum ExportFormat: String, CaseIterable, Identifiable {
+        case json = "JSON"
+        case csv = "CSV"
+        
+        var id: String { self.rawValue }
+    }
+    
+    var body: some View {
+        NavigationView {
+            Form {
+                Section(header: Text("Export Format")) {
+                    Picker("Format", selection: $selectedFormat) {
+                        ForEach(ExportFormat.allCases) { format in
+                            Text(format.rawValue).tag(format)
+                        }
+                    }
+                    .pickerStyle(SegmentedPickerStyle())
+                }
+                
+                Section(header: Text("Select Sessions")) {
+                    Button("Select All") {
+                        if selectedSessions.count == sessionStore.sessions.count {
+                            selectedSessions.removeAll()
+                        } else {
+                            selectedSessions = Set(sessionStore.sessions.map { $0.id })
+                        }
+                    }
+                    
+                    ForEach(sessionStore.sessions) { session in
+                        HStack {
+                            Text("Game – \(session.formattedDate)")
+                            Spacer()
+                            if selectedSessions.contains(session.id) {
+                                Image(systemName: "checkmark")
+                                    .foregroundColor(.blue)
+                            }
+                        }
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            if selectedSessions.contains(session.id) {
+                                selectedSessions.remove(session.id)
+                            } else {
+                                selectedSessions.insert(session.id)
+                            }
+                        }
+                    }
+                }
+                
+                Section {
+                    Button(action: exportSessions) {
+                        HStack {
+                            Spacer()
+                            Text("Export")
+                                .bold()
+                            Spacer()
+                        }
+                    }
+                    .disabled(selectedSessions.isEmpty || isExporting)
+                }
+            }
+            .navigationTitle("Export Sessions")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        presentationMode.wrappedValue.dismiss()
+                    }
+                }
+            }
+            .sheet(isPresented: $showShareSheet) {
+                if let url = exportURL {
+                    ShareSheet(items: [url])
+                }
+            }
+            .alert(isPresented: $showAlert) {
+                Alert(
+                    title: Text("Export Error"),
+                    message: Text(alertMessage),
+                    dismissButton: .default(Text("OK"))
+                )
+            }
+        }
+    }
+    
+    private func exportSessions() {
+        guard !selectedSessions.isEmpty else { return }
+        
+        isExporting = true
+        
+        // Filter selected sessions
+        let sessionsToExport = sessionStore.sessions.filter { selectedSessions.contains($0.id) }
+        
+        // Export based on selected format
+        switch selectedFormat {
+        case .json:
+            if let url = SessionPersistenceManager.shared.exportSessionsToJSON(sessions: sessionsToExport) {
+                exportURL = url
+                showShareSheet = true
+            } else {
+                alertMessage = "Failed to export sessions to JSON."
+                showAlert = true
+            }
+        case .csv:
+            if let url = SessionPersistenceManager.shared.exportSessionsToCSV(sessions: sessionsToExport) {
+                exportURL = url
+                showShareSheet = true
+            } else {
+                alertMessage = "Failed to export sessions to CSV."
+                showAlert = true
+            }
+        }
+        
+        isExporting = false
+    }
+}
+
+// ShareSheet for exporting files
+struct ShareSheet: UIViewControllerRepresentable {
+    let items: [Any]
+    
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        let controller = UIActivityViewController(activityItems: items, applicationActivities: nil)
+        return controller
+    }
+    
+    func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
 }
 
 @main
