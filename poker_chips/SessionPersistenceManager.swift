@@ -75,15 +75,16 @@ class SessionPersistenceManager {
             dateFormatter.dateFormat = "yyyy-MM-dd"
             let dateString = dateFormatter.string(from: session.startDate)
             
-            for player in session.buyIns.keys.sorted() {
-                let buyIn = session.buyIns[player] ?? 0.0
-                let cashOut = session.cashOuts[player] ?? 0.0
+            for playerId in session.buyIns.keys.sorted() {
+                let playerName = session.playerName(for: playerId)
+                let buyIn = session.buyIns[playerId] ?? 0.0
+                let cashOut = session.cashOuts[playerId] ?? 0.0
                 let net = cashOut - buyIn
                 
                 // Escape commas in player names
-                let escapedPlayerName = player.contains(",") ? "\"\(player)\"" : player
+                let escapedPlayerName = playerName.contains(",") ? "\"\(playerName)\"" : playerName
                 
-                csvString.append("\(dateString),\(escapedPlayerName),\(buyIn),\(cashOut),\(net)\n")
+                csvString.append("\(dateString),\(escapedPlayerName),\(String(format: "%.2f", buyIn)),\(String(format: "%.2f", cashOut)),\(String(format: "%.2f", net))\n")
             }
         }
         

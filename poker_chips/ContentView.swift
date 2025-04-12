@@ -36,15 +36,64 @@ struct PrimaryButtonStyle: ButtonStyle {
             .frame(maxWidth: .infinity)
             .padding()
             .background(
+                ZStack {
+                    // Base wooden color
+                    LinearGradient(
+                        gradient: Gradient(colors: [
+                            Color(red: 0.6, green: 0.4, blue: 0.2),
+                            Color(red: 0.5, green: 0.3, blue: 0.1)
+                        ]),
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                    
+                    // Wood grain effect
+                    Image(systemName: "waveform.path")
+                        .resizable(resizingMode: .tile)
+                        .foregroundColor(Color.white.opacity(0.05))
+                        .allowsHitTesting(false)
+                    
+                    // Horizontal wood grain lines
+                    VStack(spacing: 3) {
+                        ForEach(0..<8) { _ in
+                            Rectangle()
+                                .fill(Color.black.opacity(0.05))
+                                .frame(height: 1)
+                        }
+                    }
+                    .allowsHitTesting(false)
+                }
+            )
+            .cornerRadius(12)
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .stroke(Color(red: 0.4, green: 0.2, blue: 0.1), lineWidth: 1)
+            )
+            .foregroundColor(.white)
+            .shadow(color: Color(red: 0.3, green: 0.2, blue: 0.1).opacity(0.7), radius: 5, x: 0, y: 3)
+            .scaleEffect(configuration.isPressed ? 0.98 : 1.0)
+            .animation(.easeInOut(duration: 0.2), value: configuration.isPressed)
+    }
+}
+
+struct LuxuryButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .frame(maxWidth: .infinity)
+            .padding()
+            .background(
                 LinearGradient(
-                    gradient: Gradient(colors: [AppColors.accent, AppColors.accent.opacity(0.8)]),
+                    gradient: Gradient(colors: [
+                        Color(red: 0.1, green: 0.5, blue: 0.3), // Rich green
+                        Color(red: 0.9, green: 0.7, blue: 0.2)  // Gold
+                    ]),
                     startPoint: .topLeading,
                     endPoint: .bottomTrailing
                 )
             )
             .cornerRadius(12)
             .foregroundColor(.white)
-            .shadow(color: AppColors.accent.opacity(0.5), radius: 5, x: 0, y: 2)
+            .shadow(color: Color(red: 0.9, green: 0.7, blue: 0.2).opacity(0.5), radius: 5, x: 0, y: 2)
             .scaleEffect(configuration.isPressed ? 0.98 : 1.0)
             .animation(.easeInOut(duration: 0.2), value: configuration.isPressed)
     }
@@ -57,10 +106,19 @@ struct SecondaryButtonStyle: ButtonStyle {
             .background(AppColors.cardBackground)
             .cornerRadius(12)
             .foregroundColor(AppColors.text)
-            .overlay(
-                RoundedRectangle(cornerRadius: 12)
-                    .stroke(AppColors.secondaryAccent, lineWidth: 1)
-            )
+            .scaleEffect(configuration.isPressed ? 0.98 : 1.0)
+            .animation(.easeInOut(duration: 0.2), value: configuration.isPressed)
+    }
+}
+
+struct CompactButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .padding(.vertical, 8)
+            .padding(.horizontal, 12)
+            .background(AppColors.cardBackground)
+            .cornerRadius(10)
+            .foregroundColor(AppColors.text)
             .scaleEffect(configuration.isPressed ? 0.98 : 1.0)
             .animation(.easeInOut(duration: 0.2), value: configuration.isPressed)
     }
@@ -103,7 +161,7 @@ struct PlayerName: Identifiable {
 struct LogEntry: Identifiable, Codable {
     let id = UUID()
     let timestamp: Date
-    let player: String
+    let playerId: UUID
     let amount: Double
     let type: TransactionType
     
@@ -115,23 +173,29 @@ struct LogEntry: Identifiable, Codable {
     }
     
     private enum CodingKeys: String, CodingKey {
-        case timestamp, player, amount, type
+        case timestamp, playerId, amount, type
     }
 }
 
 // MARK: - Data Models
 
-struct Session: Identifiable, Codable {  // <-- Added Codable conformance
+struct Session: Identifiable, Codable {
     var id = UUID()
     let startDate: Date
-    var buyIns: [String: Double]
+    var players: [UUID: Player] = [:]
+    var buyIns: [UUID: Double] = [:]
     var logRecords: [LogEntry] = []
-    var cashOuts: [String: Double] = [:]  // <-- Added cashOuts property
+    var cashOuts: [UUID: Double] = [:]
     
     var formattedDate: String {
         let formatter = DateFormatter()
         formatter.dateStyle = .medium
         return formatter.string(from: startDate)
+    }
+    
+    // Helper function to get player name by ID
+    func playerName(for playerId: UUID) -> String {
+        return players[playerId]?.name ?? "Unknown Player"
     }
 }
 
@@ -146,66 +210,140 @@ class SessionStore: ObservableObject {
         }
     }
     
-    // Saved player names for quick selection
-    @Published var savedPlayerNames: [String] = [] {
+    // Saved players for quick selection
+    @Published var savedPlayers: [Player] = [] {
         didSet {
-            saveSavedPlayerNames()
+            saveSavedPlayers()
         }
     }
     
-    private let savedPlayerNamesKey = "saved_player_names"
+    private let savedPlayersKey = "saved_players"
     
-    // New initializer to load saved sessions and player names from persistence
+    // New initializer to load saved sessions and players from persistence
     init() {
         sessions = SessionPersistenceManager.shared.loadSessions()
         currentSession = SessionPersistenceManager.shared.loadActiveSession()
-        loadSavedPlayerNames()
+        loadSavedPlayers()
     }
     
-    // Load saved player names from UserDefaults
-    private func loadSavedPlayerNames() {
-        if let data = UserDefaults.standard.stringArray(forKey: savedPlayerNamesKey) {
-            savedPlayerNames = data
+    // Load saved players from UserDefaults
+    private func loadSavedPlayers() {
+        if let data = UserDefaults.standard.data(forKey: savedPlayersKey) {
+            let decoder = JSONDecoder()
+            if let players = try? decoder.decode([Player].self, from: data) {
+                savedPlayers = players
+            }
         }
     }
     
-    // Save player names to UserDefaults
-    private func saveSavedPlayerNames() {
-        UserDefaults.standard.set(savedPlayerNames, forKey: savedPlayerNamesKey)
-    }
-    
-    // Add a new player name to saved names if it doesn't already exist
-    func addPlayerNameToSaved(_ name: String) {
-        if !savedPlayerNames.contains(name) {
-            savedPlayerNames.append(name)
+    // Save players to UserDefaults
+    private func saveSavedPlayers() {
+        let encoder = JSONEncoder()
+        if let encoded = try? encoder.encode(savedPlayers) {
+            UserDefaults.standard.set(encoded, forKey: savedPlayersKey)
         }
     }
     
-    // Remove a player name from saved names
-    func removePlayerName(at index: Int) {
-        if index >= 0 && index < savedPlayerNames.count {
-            savedPlayerNames.remove(at: index)
+    // Add a new player to saved players if it doesn't already exist
+    func addPlayerToSaved(_ name: String) -> Player {
+        // Check if player with this name already exists
+        if let existingPlayer = savedPlayers.first(where: { $0.name == name }) {
+            return existingPlayer
+        }
+        
+        // Create a new player
+        let newPlayer = Player(name: name)
+        savedPlayers.append(newPlayer)
+        return newPlayer
+    }
+    
+    // Get player by name, create if doesn't exist
+    func getOrCreatePlayer(name: String) -> Player {
+        if let existingPlayer = savedPlayers.first(where: { $0.name == name }) {
+            return existingPlayer
+        }
+        return addPlayerToSaved(name)
+    }
+    
+    // Get player by ID
+    func getPlayer(id: UUID) -> Player? {
+        return savedPlayers.first(where: { $0.id == id })
+    }
+    
+    // Update player name
+    func updatePlayerName(id: UUID, newName: String) {
+        if let index = savedPlayers.firstIndex(where: { $0.id == id }) {
+            savedPlayers[index].name = newName
+            
+            // Update player name in all sessions
+            for i in 0..<sessions.count {
+                if let player = sessions[i].players[id] {
+                    sessions[i].players[id] = Player(id: id, name: newName)
+                }
+            }
+            
+            // Update player name in current session if exists
+            if var session = currentSession, let _ = session.players[id] {
+                session.players[id] = Player(id: id, name: newName)
+                currentSession = session
+            }
+            
+            // Save changes
+            SessionPersistenceManager.shared.saveSessions(sessions)
+        }
+    }
+    
+    // Remove a player from saved players
+    func removePlayer(at index: Int) {
+        if index >= 0 && index < savedPlayers.count {
+            savedPlayers.remove(at: index)
         }
     }
     
     func startNewSession() {
-        // Start a new session with an empty dictionary; players will be added when registered
-        currentSession = Session(startDate: Date(), buyIns: [:])
+        // Start a new session with empty dictionaries
+        currentSession = Session(startDate: Date())
     }
     
-    func addBuyIn(for player: String, amount: Double) {
+    func addBuyIn(for playerName: String, amount: Double) {
         guard var session = currentSession else { return }
-        session.buyIns[player, default: 0.0] += amount
-        let record = LogEntry(timestamp: Date(), player: player, amount: amount, type: .buyIn)
+        
+        // Get or create player
+        let player = getOrCreatePlayer(name: playerName)
+        
+        // Add player to session if not already there
+        if session.players[player.id] == nil {
+            session.players[player.id] = player
+        }
+        
+        // Add buy-in
+        session.buyIns[player.id, default: 0.0] += amount
+        
+        // Create log entry
+        let record = LogEntry(timestamp: Date(), playerId: player.id, amount: amount, type: .buyIn)
         session.logRecords.append(record)
+        
         currentSession = session
     }
     
-    func cashOut(for player: String, chipStack: Double) {
+    func cashOut(for playerName: String, chipStack: Double) {
         guard var session = currentSession else { return }
-        session.cashOuts[player] = chipStack
-        let record = LogEntry(timestamp: Date(), player: player, amount: chipStack, type: .cashOut)
+        
+        // Get or create player
+        let player = getOrCreatePlayer(name: playerName)
+        
+        // Add player to session if not already there
+        if session.players[player.id] == nil {
+            session.players[player.id] = player
+        }
+        
+        // Add cash-out
+        session.cashOuts[player.id] = chipStack
+        
+        // Create log entry
+        let record = LogEntry(timestamp: Date(), playerId: player.id, amount: chipStack, type: .cashOut)
         session.logRecords.append(record)
+        
         currentSession = session
     }
     
@@ -399,45 +537,45 @@ struct HomeView: View {
                     .buttonStyle(PrimaryButtonStyle())
                 }
                 
-                HStack(spacing: 16) {
+                HStack(spacing: 10) {
                     Button(action: {
                         showInstructions = true
                     }) {
-                        VStack {
+                        VStack(spacing: 2) {
                             Image(systemName: "questionmark.circle.fill")
-                                .font(.title2)
+                                .font(.subheadline)
                             Text("Help")
-                                .font(.caption)
+                                .font(.caption2)
                         }
+                        .frame(minWidth: 0, maxWidth: .infinity)
                     }
-                    .buttonStyle(SecondaryButtonStyle())
-                    .frame(maxWidth: .infinity)
+                    .buttonStyle(CompactButtonStyle())
                     
                     Button(action: {
                         showSettings = true
                     }) {
-                        VStack {
+                        VStack(spacing: 2) {
                             Image(systemName: "gear")
-                                .font(.title2)
+                                .font(.subheadline)
                             Text("Settings")
-                                .font(.caption)
+                                .font(.caption2)
                         }
+                        .frame(minWidth: 0, maxWidth: .infinity)
                     }
-                    .buttonStyle(SecondaryButtonStyle())
-                    .frame(maxWidth: .infinity)
+                    .buttonStyle(CompactButtonStyle())
                     
                     Button(action: {
                         showExportView = true
                     }) {
-                        VStack {
+                        VStack(spacing: 2) {
                             Image(systemName: "square.and.arrow.up")
-                                .font(.title2)
+                                .font(.subheadline)
                             Text("Export")
-                                .font(.caption)
+                                .font(.caption2)
                         }
+                        .frame(minWidth: 0, maxWidth: .infinity)
                     }
-                    .buttonStyle(SecondaryButtonStyle())
-                    .frame(maxWidth: .infinity)
+                    .buttonStyle(CompactButtonStyle())
                 }
                 }
                 .padding()
@@ -523,13 +661,14 @@ struct SessionView: View {
                 ScrollView {
                     VStack(spacing: 12) {
                     if let session = sessionStore.currentSession {
-                        ForEach(session.buyIns.keys.sorted(), id: \.self) { player in
-                            let isCashedOut = session.cashOuts[player] != nil
-                            let buyInAmount = session.buyIns[player] ?? 0
+                        ForEach(session.buyIns.keys.sorted(), id: \.self) { playerId in
+                            let isCashedOut = session.cashOuts[playerId] != nil
+                            let buyInAmount = session.buyIns[playerId] ?? 0
+                            let playerName = session.playerName(for: playerId)
                             
                             HStack {
                                 VStack(alignment: .leading, spacing: 4) {
-                                    Text(player)
+                                    Text(playerName)
                                         .font(.headline)
                                         .foregroundColor(isCashedOut ? AppColors.secondaryText : AppColors.text)
                                     
@@ -537,7 +676,7 @@ struct SessionView: View {
                                         .font(.subheadline)
                                         .foregroundColor(AppColors.secondaryText)
                                     
-                                    if let cashOut = session.cashOuts[player] {
+                                    if let cashOut = session.cashOuts[playerId] {
                                         let net = cashOut - buyInAmount
                                         let netColor = net >= 0 ? AppColors.success : AppColors.accent
                                         
@@ -571,12 +710,12 @@ struct SessionView: View {
                             .opacity(isCashedOut ? 0.7 : 1.0)
                             .onTapGesture {
                                 if !isCashedOut {
-                                    selectedPlayer = player
+                                    selectedPlayer = playerName
                                 }
                             }
                             .opacity(animateItems ? 1 : 0)
                             .offset(y: animateItems ? 0 : 20)
-                            .animation(.spring(response: 0.3, dampingFraction: 0.7).delay(Double(session.buyIns.keys.sorted().firstIndex(of: player) ?? 0) * 0.1), value: animateItems)
+                            .animation(.spring(response: 0.3, dampingFraction: 0.7).delay(Double(session.buyIns.keys.sorted().firstIndex(of: playerId) ?? 0) * 0.1), value: animateItems)
                         }
                     }
                     }
@@ -599,45 +738,48 @@ struct SessionView: View {
                 }
                 .buttonStyle(PrimaryButtonStyle())
                 
-                HStack(spacing: 16) {
+                HStack(spacing: 8) {
+                    // Totals Button
                     Button(action: {
                         showTotals = true
                     }) {
-                        VStack {
+                        VStack(spacing: 2) {
                             Image(systemName: "dollarsign.circle.fill")
-                                .font(.title2)
+                                .font(.subheadline)
                             Text("Totals")
-                                .font(.caption)
+                                .font(.caption2)
                         }
+                        .frame(maxWidth: .infinity)
                     }
-                    .buttonStyle(SecondaryButtonStyle())
-                    .frame(maxWidth: .infinity)
+                    .buttonStyle(CompactButtonStyle())
                     
+                    // Log Button
                     Button(action: {
                         showLog = true
                     }) {
-                        VStack {
+                        VStack(spacing: 2) {
                             Image(systemName: "list.bullet.clipboard")
-                                .font(.title2)
+                                .font(.subheadline)
                             Text("Log")
-                                .font(.caption)
+                                .font(.caption2)
                         }
+                        .frame(maxWidth: .infinity)
                     }
-                    .buttonStyle(SecondaryButtonStyle())
-                    .frame(maxWidth: .infinity)
+                    .buttonStyle(CompactButtonStyle())
                     
+                    // End Button
                     Button(action: {
                         showEndSessionAlert = true
                     }) {
-                        VStack {
+                        VStack(spacing: 2) {
                             Image(systemName: "xmark.circle.fill")
-                                .font(.title2)
+                                .font(.subheadline)
                             Text("End")
-                                .font(.caption)
+                                .font(.caption2)
                         }
+                        .frame(maxWidth: .infinity)
                     }
-                    .buttonStyle(SecondaryButtonStyle())
-                    .frame(maxWidth: .infinity)
+                    .buttonStyle(CompactButtonStyle())
                 }
                 }
                 .padding()
@@ -953,9 +1095,9 @@ struct TotalsView: View {
     var totalProfitLoss: Double {
         if let session = sessionStore.currentSession {
             var total = 0.0
-            for player in session.buyIns.keys {
-                let buyIn = session.buyIns[player] ?? 0
-                let cashOut = session.cashOuts[player] ?? 0
+            for playerId in session.buyIns.keys {
+                let buyIn = session.buyIns[playerId] ?? 0
+                let cashOut = session.cashOuts[playerId] ?? 0
                 total += (cashOut - buyIn)
             }
             return total
@@ -1032,11 +1174,12 @@ struct TotalsView: View {
                             .font(.headline)
                             .foregroundColor(AppColors.secondaryAccent)) {
                             if let session = sessionStore.currentSession {
-                                ForEach(session.buyIns.keys.sorted(), id: \.self) { player in
-                                    if let buyInTotal = session.buyIns[player] {
+                                ForEach(session.buyIns.keys.sorted(), id: \.self) { playerId in
+                                    if let buyInTotal = session.buyIns[playerId] {
+                                        let playerName = session.playerName(for: playerId)
                                         HStack {
                                             VStack(alignment: .leading, spacing: 4) {
-                                                Text(player)
+                                                Text(playerName)
                                                     .font(.headline)
                                                     .foregroundColor(AppColors.text)
                                                 
@@ -1049,7 +1192,7 @@ struct TotalsView: View {
                                                         .foregroundColor(AppColors.secondaryText)
                                                 }
                                                 
-                                                if let cashOut = session.cashOuts[player] {
+                                                if let cashOut = session.cashOuts[playerId] {
                                                     let net = cashOut - buyInTotal
                                                     let netColor = net >= 0 ? AppColors.success : AppColors.accent
                                                     
@@ -1080,7 +1223,7 @@ struct TotalsView: View {
                                             
                                             Spacer()
                                             
-                                            if let cashOut = session.cashOuts[player] {
+                                            if let cashOut = session.cashOuts[playerId] {
                                                 let net = cashOut - buyInTotal
                                                 if net >= 0 {
                                                     Image(systemName: "arrow.up.circle.fill")
@@ -1101,7 +1244,7 @@ struct TotalsView: View {
                                         .listRowBackground(AppColors.cardBackground.opacity(0.8))
                                         .opacity(animateItems ? 1 : 0)
                                         .offset(x: animateItems ? 0 : -20)
-                                        .animation(.easeOut.delay(Double(session.buyIns.keys.sorted().firstIndex(of: player) ?? 0) * 0.1), value: animateItems)
+                                        .animation(.easeOut.delay(Double(session.buyIns.keys.sorted().firstIndex(of: playerId) ?? 0) * 0.1), value: animateItems)
                                     }
                                 }
                             }
@@ -1172,7 +1315,7 @@ struct LogView: View {
                                 ForEach(Array(session.logRecords.reversed().enumerated()), id: \.element.id) { index, record in
                                     HStack {
                                         VStack(alignment: .leading) {
-                                            Text(record.player)
+                                            Text(session.playerName(for: record.playerId))
                                                 .font(.headline)
                                                 .foregroundColor(AppColors.text)
                                             
@@ -1261,7 +1404,10 @@ struct InstructionsView: View {
                 }
             }
             .padding(.leading)
+            
+            Spacer(minLength: 0)
         }
+        .frame(minHeight: 150)
         .padding()
         .background(AppColors.cardBackground)
         .cornerRadius(12)
@@ -1285,13 +1431,13 @@ struct InstructionsView: View {
                                 .foregroundColor(AppColors.secondaryAccent)
                                 .padding(.top)
                             
-                            Text("Welcome to Poker Chips")
+                            Text("It's Friday Night!")
                                 .font(.title)
                                 .fontWeight(.bold)
                                 .foregroundColor(AppColors.text)
                                 .multilineTextAlignment(.center)
                             
-                            Text("Your Home Game Tracker")
+                            Text("Home Game Tracker")
                                 .font(.headline)
                                 .foregroundColor(AppColors.secondaryText)
                                 .multilineTextAlignment(.center)
@@ -1307,51 +1453,66 @@ struct InstructionsView: View {
                                 icon: "play.circle.fill",
                                 title: "Getting Started",
                                 instructions: [
-                                    "Tap 'Start New Session' to begin a new game",
-                                    "Use 'New Player' to register players as they join"
+                                    "Tap 'Start New Session' on the home screen to begin tracking a new game",
+                                    "Players from previous sessions will be available for quick selection"
                                 ],
                                 delay: 0.1
+                            )
+                            
+                            instructionSection(
+                                icon: "person.badge.plus",
+                                title: "Adding Players",
+                                instructions: [
+                                    "Tap 'New Player' to add someone to the current session",
+                                    "Enter a new name or select from previously saved players",
+                                    "Players are automatically saved for future sessions"
+                                ],
+                                delay: 0.2
                             )
                             
                             instructionSection(
                                 icon: "dollarsign.circle.fill",
                                 title: "Managing Buy-Ins",
                                 instructions: [
-                                    "Tap on a player's name to add a buy-in amount",
-                                    "Choose from preset amounts or enter a custom value"
+                                    "Tap on an active player's card to record transactions",
+                                    "Select a preset amount or enter a custom buy-in value",
+                                    "Players can make multiple buy-ins during a session"
                                 ],
-                                delay: 0.2
+                                delay: 0.3
                             )
                             
                             instructionSection(
                                 icon: "arrow.up.circle.fill",
                                 title: "Cash Outs",
                                 instructions: [
-                                    "When a player leaves, tap their name and select 'Cash Out'",
-                                    "Enter the chip stack's dollar value"
-                                ],
-                                delay: 0.3
-                            )
-                            
-                            instructionSection(
-                                icon: "chart.bar.fill",
-                                title: "Tracking & Analysis",
-                                instructions: [
-                                    "View current totals with the 'Totals' button",
-                                    "See transaction history with the 'Log' button",
-                                    "End your session by tapping 'End'"
+                                    "When a player leaves, tap their card and select 'Cash Out'",
+                                    "Enter the final chip stack value in dollars",
+                                    "The app will automatically calculate profit/loss"
                                 ],
                                 delay: 0.4
                             )
                             
                             instructionSection(
-                                icon: "square.and.arrow.up",
-                                title: "Exporting Data",
+                                icon: "chart.bar.fill",
+                                title: "Session Management",
                                 instructions: [
-                                    "Export your session data in JSON or CSV format",
-                                    "Select which sessions to include in your export"
+                                    "View current game stats with the 'Totals' button",
+                                    "Check transaction history in the 'Log' section",
+                                    "Tap 'End' when the game is over to save the session",
+                                    "View detailed stats for past sessions from the home screen"
                                 ],
                                 delay: 0.5
+                            )
+                            
+                            instructionSection(
+                                icon: "square.and.arrow.up",
+                                title: "Data & Settings",
+                                instructions: [
+                                    "Export your session data in JSON or CSV format",
+                                    "Manage saved players in the Settings screen",
+                                    "Customize notification preferences in Settings"
+                                ],
+                                delay: 0.6
                             )
                         }
                         .padding(.bottom)
@@ -1430,7 +1591,7 @@ struct NewPlayerRegistrationView: View {
                                     
                                     Button(action: {
                                         if !manualName.isEmpty {
-                                            sessionStore.addPlayerNameToSaved(manualName)
+                                            sessionStore.addPlayerToSaved(manualName)
                                             onSelect(manualName)
                                         }
                                     }) {
@@ -1439,18 +1600,8 @@ struct NewPlayerRegistrationView: View {
                                             Text("Register Player")
                                                 .font(.headline)
                                         }
-                                        .frame(maxWidth: .infinity)
-                                        .padding()
-                                        .background(
-                                            LinearGradient(
-                                                gradient: Gradient(colors: [AppColors.accent, AppColors.accent.opacity(0.8)]),
-                                                startPoint: .topLeading,
-                                                endPoint: .bottomTrailing
-                                            )
-                                        )
-                                        .cornerRadius(12)
-                                        .foregroundColor(.white)
                                     }
+                                    .buttonStyle(PrimaryButtonStyle())
                                     .disabled(manualName.isEmpty)
                                     .opacity(manualName.isEmpty ? 0.6 : 1.0)
                                 }
@@ -1461,7 +1612,7 @@ struct NewPlayerRegistrationView: View {
                             .animation(.spring(response: 0.3, dampingFraction: 0.7).delay(0.1), value: animateItems)
                             
                             // Saved players section
-                            if !sessionStore.savedPlayerNames.isEmpty {
+                            if !sessionStore.savedPlayers.isEmpty {
                                 VStack(alignment: .leading, spacing: 12) {
                                     Text("QUICK SELECT")
                                         .font(.caption)
@@ -1470,15 +1621,15 @@ struct NewPlayerRegistrationView: View {
                                         .padding(.horizontal)
                                     
                                     VStack(spacing: 8) {
-                                        ForEach(Array(sessionStore.savedPlayerNames.enumerated()), id: \.element) { index, name in
+                                        ForEach(Array(sessionStore.savedPlayers.enumerated()), id: \.element.id) { index, player in
                                             Button(action: {
-                                                onSelect(name)
+                                                onSelect(player.name)
                                             }) {
                                                 HStack {
                                                     Image(systemName: "person.circle.fill")
                                                         .foregroundColor(AppColors.secondaryAccent)
                                                     
-                                                    Text(name)
+                                                    Text(player.name)
                                                         .foregroundColor(AppColors.text)
                                                     
                                                     Spacer()
@@ -1492,9 +1643,33 @@ struct NewPlayerRegistrationView: View {
                                             }
                                             .contextMenu {
                                                 Button(role: .destructive) {
-                                                    sessionStore.removePlayerName(at: index)
+                                                    sessionStore.removePlayer(at: index)
                                                 } label: {
                                                     Label("Delete", systemImage: "trash")
+                                                }
+                                                
+                                                Button {
+                                                    // Show rename dialog with alert
+                                                    let oldName = player.name
+                                                    var newName = oldName
+                                                    
+                                                    let alert = UIAlertController(title: "Rename Player", message: nil, preferredStyle: .alert)
+                                                    alert.addTextField { textField in
+                                                        textField.text = oldName
+                                                    }
+                                                    
+                                                    alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+                                                    alert.addAction(UIAlertAction(title: "Save", style: .default) { _ in
+                                                        if let textField = alert.textFields?.first, let text = textField.text, !text.isEmpty {
+                                                            newName = text
+                                                            sessionStore.updatePlayerName(id: player.id, newName: newName)
+                                                        }
+                                                    })
+                                                    
+                                                    // Present the alert
+                                                    UIApplication.shared.windows.first?.rootViewController?.present(alert, animated: true)
+                                                } label: {
+                                                    Label("Rename", systemImage: "pencil")
                                                 }
                                             }
                                             .opacity(animateItems ? 1 : 0)
@@ -1533,11 +1708,148 @@ struct NewPlayerRegistrationView: View {
 
 // MARK: - Settings View
 
+// MARK: - Manage Players View
+
+struct ManagePlayersView: View {
+    @EnvironmentObject var sessionStore: SessionStore
+    @Environment(\.presentationMode) var presentationMode
+    @State private var animateItems = false
+    @State private var editingPlayer: Player? = nil
+    @State private var newName: String = ""
+    @State private var showEditAlert = false
+    @State private var showDeleteAlert = false
+    @State private var playerToDelete: Int? = nil
+    
+    var body: some View {
+        NavigationView {
+            ZStack {
+                AppColors.background.ignoresSafeArea()
+                
+                VStack(spacing: 0) {
+                    // Header
+                    VStack {
+                        Image(systemName: "person.3.fill")
+                            .font(.system(size: 50))
+                            .foregroundColor(AppColors.secondaryAccent)
+                            .padding(.top)
+                        
+                        Text("Manage Players")
+                            .font(.title2)
+                            .fontWeight(.bold)
+                            .foregroundColor(AppColors.text)
+                            .padding(.bottom)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .background(AppColors.cardBackground)
+                    
+                    if sessionStore.savedPlayers.isEmpty {
+                        VStack {
+                            Spacer()
+                            Text("No saved players")
+                                .font(.headline)
+                                .foregroundColor(AppColors.secondaryText)
+                                .padding()
+                            Text("Players you add during games will appear here")
+                                .font(.subheadline)
+                                .foregroundColor(AppColors.secondaryText)
+                                .multilineTextAlignment(.center)
+                                .padding(.horizontal)
+                            Spacer()
+                        }
+                    } else {
+                        List {
+                            ForEach(Array(sessionStore.savedPlayers.enumerated()), id: \.element.id) { index, player in
+                                HStack {
+                                    Image(systemName: "person.circle.fill")
+                                        .foregroundColor(AppColors.secondaryAccent)
+                                        .font(.title3)
+                                    
+                                    Text(player.name)
+                                        .foregroundColor(AppColors.text)
+                                    
+                                    Spacer()
+                                    
+                                    Button(action: {
+                                        editingPlayer = player
+                                        newName = player.name
+                                        showEditAlert = true
+                                    }) {
+                                        Image(systemName: "pencil.circle")
+                                            .foregroundColor(AppColors.secondaryAccent)
+                                            .font(.title3)
+                                    }
+                                    .buttonStyle(BorderlessButtonStyle())
+                                    .padding(.horizontal, 4)
+                                    
+                                    Button(action: {
+                                        playerToDelete = index
+                                        showDeleteAlert = true
+                                    }) {
+                                        Image(systemName: "trash.circle")
+                                            .foregroundColor(AppColors.accent)
+                                            .font(.title3)
+                                    }
+                                    .buttonStyle(BorderlessButtonStyle())
+                                }
+                                .padding(.vertical, 8)
+                                .listRowBackground(AppColors.cardBackground.opacity(0.8))
+                                .opacity(animateItems ? 1 : 0)
+                                .offset(y: animateItems ? 0 : 20)
+                                .animation(.spring(response: 0.3, dampingFraction: 0.7).delay(Double(index) * 0.05), value: animateItems)
+                            }
+                        }
+                        .listStyle(PlainListStyle())
+                        .scrollContentBackground(.hidden)
+                    }
+                }
+            }
+            .navigationTitle("Player Management")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Done") {
+                        presentationMode.wrappedValue.dismiss()
+                    }
+                }
+            }
+            .onAppear {
+                // Trigger animations when view appears
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                    withAnimation {
+                        animateItems = true
+                    }
+                }
+            }
+            .alert("Edit Player Name", isPresented: $showEditAlert) {
+                TextField("Name", text: $newName)
+                Button("Cancel", role: .cancel) { }
+                Button("Save") {
+                    if !newName.isEmpty, let player = editingPlayer {
+                        sessionStore.updatePlayerName(id: player.id, newName: newName)
+                    }
+                }
+            }
+            .alert("Delete Player", isPresented: $showDeleteAlert) {
+                Button("Cancel", role: .cancel) { }
+                Button("Delete", role: .destructive) {
+                    if let index = playerToDelete {
+                        sessionStore.removePlayer(at: index)
+                    }
+                }
+            } message: {
+                Text("Are you sure you want to delete this player? This action cannot be undone.")
+            }
+        }
+    }
+}
+
 struct SettingsView: View {
     @Environment(\.presentationMode) var presentationMode
+    @EnvironmentObject var sessionStore: SessionStore
     @AppStorage("vibrationEnabled") var vibrationEnabled: Bool = true
     @AppStorage("soundEnabled") var soundEnabled: Bool = true
     @State private var animateItems = false
+    @State private var showManagePlayers = false
     
     var body: some View {
         NavigationView {
@@ -1563,6 +1875,40 @@ struct SettingsView: View {
                     
                     ScrollView {
                         VStack(spacing: 20) {
+                            // Player management
+                            VStack(alignment: .leading, spacing: 12) {
+                                Text("PLAYERS")
+                                    .font(.caption)
+                                    .fontWeight(.bold)
+                                    .foregroundColor(AppColors.secondaryAccent)
+                                    .padding(.horizontal)
+                                
+                                Button(action: {
+                                    showManagePlayers = true
+                                }) {
+                                    HStack {
+                                        Image(systemName: "person.3.fill")
+                                            .foregroundColor(AppColors.secondaryAccent)
+                                            .font(.headline)
+                                        
+                                        Text("Manage Saved Players")
+                                            .foregroundColor(AppColors.text)
+                                        
+                                        Spacer()
+                                        
+                                        Image(systemName: "chevron.right")
+                                            .foregroundColor(AppColors.secondaryText)
+                                    }
+                                    .padding()
+                                    .background(AppColors.cardBackground)
+                                    .cornerRadius(12)
+                                }
+                                .padding(.horizontal)
+                            }
+                            .opacity(animateItems ? 1 : 0)
+                            .offset(y: animateItems ? 0 : 20)
+                            .animation(.spring(response: 0.3, dampingFraction: 0.7).delay(0.1), value: animateItems)
+                            
                             // Notification settings
                             VStack(alignment: .leading, spacing: 12) {
                                 Text("NOTIFICATIONS")
@@ -1606,7 +1952,7 @@ struct SettingsView: View {
                             }
                             .opacity(animateItems ? 1 : 0)
                             .offset(y: animateItems ? 0 : 20)
-                            .animation(.spring(response: 0.3, dampingFraction: 0.7).delay(0.1), value: animateItems)
+                            .animation(.spring(response: 0.3, dampingFraction: 0.7).delay(0.2), value: animateItems)
                             
                             // App info
                             VStack(alignment: .leading, spacing: 12) {
@@ -1655,7 +2001,7 @@ struct SettingsView: View {
                             }
                             .opacity(animateItems ? 1 : 0)
                             .offset(y: animateItems ? 0 : 20)
-                            .animation(.spring(response: 0.3, dampingFraction: 0.7).delay(0.2), value: animateItems)
+                            .animation(.spring(response: 0.3, dampingFraction: 0.7).delay(0.3), value: animateItems)
                         }
                         .padding(.vertical)
                     }
@@ -1677,6 +2023,10 @@ struct SettingsView: View {
                         animateItems = true
                     }
                 }
+            }
+            .sheet(isPresented: $showManagePlayers) {
+                ManagePlayersView()
+                    .environmentObject(sessionStore)
             }
         }
     }
@@ -1864,21 +2214,11 @@ struct ExportView: View {
                                     Text("Export Data")
                                         .font(.headline)
                                 }
-                                .frame(maxWidth: .infinity)
-                                .padding()
-                                .background(
-                                    LinearGradient(
-                                        gradient: Gradient(colors: [AppColors.accent, AppColors.accent.opacity(0.8)]),
-                                        startPoint: .topLeading,
-                                        endPoint: .bottomTrailing
-                                    )
-                                )
-                                .cornerRadius(12)
-                                .foregroundColor(.white)
-                                .padding(.horizontal)
-                                .opacity(selectedSessions.isEmpty || isExporting ? 0.5 : 1.0)
-                                .disabled(selectedSessions.isEmpty || isExporting)
                             }
+                            .buttonStyle(PrimaryButtonStyle())
+                            .padding(.horizontal)
+                            .opacity(selectedSessions.isEmpty || isExporting ? 0.5 : 1.0)
+                            .disabled(selectedSessions.isEmpty || isExporting)
                             .padding(.top)
                             .opacity(animateItems ? 1 : 0)
                             .offset(y: animateItems ? 0 : 20)
